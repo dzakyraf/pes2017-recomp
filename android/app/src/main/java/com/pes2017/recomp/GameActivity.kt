@@ -1129,7 +1129,7 @@ class GameActivity : AppCompatActivity(), NativeListener {
             capture.onTick = { seconds ->
                 captureButton.text = "\u25A0 STOP %d:%02d".format(seconds / 60, seconds % 60)
             }
-            capture.start()
+            capture.start(surfaceView)
             captureButton.alpha = 1f
             captureButton.setTextColor(Color.rgb(255, 90, 90))
             captureButton.text = "\u25A0 STOP 0:00"
@@ -1170,11 +1170,26 @@ class GameActivity : AppCompatActivity(), NativeListener {
         captureButton.text = getString(R.string.capture_saving)
         capture.stop(surfaceView, name, note) { folder, message ->
             resetCaptureButton()
-            toast(
-                if (folder != null) getString(R.string.capture_saved, folder.name)
-                else getString(R.string.capture_failed, message),
-            )
+            if (folder == null) {
+                toast(getString(R.string.capture_failed, message))
+            } else {
+                AlertDialog.Builder(this)
+                    .setTitle(R.string.capture_saved_title)
+                    .setMessage(getString(R.string.capture_saved_body, folder.name))
+                    .setPositiveButton(R.string.capture_share) { _, _ -> shareCapture(folder) }
+                    .setNegativeButton(R.string.close, null)
+                    .setOnDismissListener { goFullscreen() }
+                    .show()
+            }
         }
+    }
+
+    /** Zips the capture and hands it to the system share sheet (a chat, mail or a drive). */
+    private fun shareCapture(folder: java.io.File) {
+        Thread {
+            val ok = try { Captures.share(this, folder) } catch (_: Throwable) { false }
+            if (!ok) runOnUiThread { toast(getString(R.string.capture_failed, "zip")) }
+        }.start()
     }
 
     /**

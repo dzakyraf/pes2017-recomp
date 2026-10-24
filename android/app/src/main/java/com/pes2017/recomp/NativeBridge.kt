@@ -158,6 +158,9 @@ object NativeBridge {
     /** Returns formatted "Device|RendererMode|TextureCompression" */
     external fun nativeRendererInfo(): String
 
+    /** Engine options in force, switch files, swapchain/present counts and Vulkan device facts, as text. */
+    external fun nativeEngineReport(): String
+
     /** Feeds a console command into IW4 Cbuf_AddText queue (god, give all, map, etc.) */
     external fun nativeRunConsoleCommand(command: String)
 

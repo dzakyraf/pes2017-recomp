@@ -123,6 +123,14 @@
             tools:ignore="DiscouragedApi,LockedOrientationActivity" />
 
         <activity
+            android:name=".CapturesActivity"
+            android:exported="false"
+            android:parentActivityName=".SettingsActivity"
+            android:screenOrientation="fullUser"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density"
+            tools:ignore="DiscouragedApi,LockedOrientationActivity" />
+
+        <activity
             android:name=".InstallActivity"
             android:exported="false"
             android:parentActivityName=".MainActivity"
@@ -136,5 +144,16 @@
             android:screenOrientation="fullUser"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density"
             tools:ignore="DiscouragedApi,LockedOrientationActivity" />
+
+        <!-- Shares a capture's zip (CaptureSession.zip) through the system share sheet. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.captures"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/capture_paths" />
+        </provider>
     </application>
 </manifest>

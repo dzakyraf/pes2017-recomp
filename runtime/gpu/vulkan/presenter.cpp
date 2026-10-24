@@ -21,6 +21,7 @@ void     vk::WaitUntilTaken(uint64_t) {}
 uint64_t vk::GuestBlankPeriod() { return 0; }
 bool     vk::Running()         { return false; }
 uint64_t vk::PresentedFrames() { return 0; }
+std::string vk::PresenterReport() { return "presenter: none (headless build)\n"; }
 #else
 
 #include <atomic>
@@ -132,6 +133,9 @@ namespace
         std::atomic<bool> running{ false };
         std::atomic<bool> ready{ false };
         std::atomic<uint64_t> presented{ 0 };
+        // What each present showed, for PresenterReport: the frame through the upscaler, the frame
+        // through the plain blit, a present with nothing to show, and frames let go unshown.
+        std::atomic<uint64_t> upscaledPresents{ 0 }, blitPresents{ 0 }, emptyPresents{ 0 }, droppedFrames{ 0 };
 
         // The frames the renderer has finished and the window has not shown
         // yet, oldest first. Each is shown once, in order: the window used to
@@ -858,6 +862,7 @@ namespace
             {
                 g.taken = std::max(g.taken, g.frameQueue.front().serial);
                 g.frameQueue.pop_front();
+                g.droppedFrames.fetch_add(1, std::memory_order_relaxed);
                 g.takenWake.notify_all();
             }
             if (!g.frameQueue.empty())
@@ -915,6 +920,7 @@ namespace
                 ? vk::upscale::Record(g.device, g.physical, frame.commands, g.frameIndex, shown.image,
                                       shown.width, shown.height, pictureWidth, pictureHeight)
                 : VK_NULL_HANDLE;
+            (upscaled ? g.upscaledPresents : g.blitPresents).fetch_add(1, std::memory_order_relaxed);
             if (upscaled)
             {
                 blit.srcOffsets[1] = { int32_t(pictureWidth), int32_t(pictureHeight), 1 };
@@ -927,6 +933,7 @@ namespace
         }
         else
         {
+            g.emptyPresents.fetch_add(1, std::memory_order_relaxed);
             // A recognisably "nothing rendered yet" colour rather than black, so
             // a blank window is distinguishable from a dead one.
             VkClearColorValue colour{};
@@ -1431,5 +1438,68 @@ void vk::Stop()
 
 bool vk::Running() { return g.running.load(); }
 uint64_t vk::PresentedFrames() { return g.presented.load(); }
+
+std::string vk::PresenterReport()
+{
+    std::string out;
+    char line[512];
+    auto add = [&](const char* format, auto... args) {
+        snprintf(line, sizeof(line), format, args...);
+        out += line;
+    };
+    add("presenter: running %d, swapchains made %llu, %zu swapchain images, %ux%u, present mode FIFO\n",
+        int(g.running.load()), (unsigned long long)g.swapchainsMade, g.images.size(), g.extent.width, g.extent.height);
+    add("presenter: %u frames in flight, present_wait %d, suboptimal expected %d, fullscreen %d\n",
+        kFramesInFlight, int(g.presentWait), int(g.suboptimalIsExpected), int(g.fullscreen));
+    add("presents: %llu total, %llu through the upscaler, %llu through the plain blit, %llu with nothing to show, "
+        "%llu frames let go unshown (newest-wins when the title is off the blank)\n",
+        (unsigned long long)g.presented.load(), (unsigned long long)g.upscaledPresents.load(),
+        (unsigned long long)g.blitPresents.load(), (unsigned long long)g.emptyPresents.load(),
+        (unsigned long long)g.droppedFrames.load());
+    add("display clock: nominal %.3f ms (exact %d), measured %.3f ms, on time %llu, stretched %llu, "
+        "behind 0/1/2/3+: %llu/%llu/%llu/%llu\n",
+        g.nominalNs / 1e6, int(g.exactRate), g.periodNs / 1e6, (unsigned long long)g.shownOnTime,
+        (unsigned long long)g.stretched, (unsigned long long)g.behindCount[0], (unsigned long long)g.behindCount[1],
+        (unsigned long long)g.behindCount[2], (unsigned long long)g.behindCount[3]);
+    add("upscaler: %s now\n", vk::upscale::Enabled() ? "on" : "off");
+
+    if (g.physical)
+    {
+        VkPhysicalDeviceProperties props{};
+        vkGetPhysicalDeviceProperties(g.physical, &props);
+        add("device: %s, type %u, vendor 0x%x, device 0x%x\n", props.deviceName, unsigned(props.deviceType),
+            props.vendorID, props.deviceID);
+        add("vulkan: API %u.%u.%u, driver version 0x%x (%u.%u.%u)\n", VK_API_VERSION_MAJOR(props.apiVersion),
+            VK_API_VERSION_MINOR(props.apiVersion), VK_API_VERSION_PATCH(props.apiVersion), props.driverVersion,
+            VK_API_VERSION_MAJOR(props.driverVersion), VK_API_VERSION_MINOR(props.driverVersion),
+            VK_API_VERSION_PATCH(props.driverVersion));
+        VkPhysicalDeviceFeatures features{};
+        vkGetPhysicalDeviceFeatures(g.physical, &features);
+        add("features: textureCompressionBC %d, ASTC_LDR %d, ETC2 %d, sampleRateShading %d, independentBlend %d\n",
+            int(features.textureCompressionBC), int(features.textureCompressionASTC_LDR),
+            int(features.textureCompressionETC2), int(features.sampleRateShading), int(features.independentBlend));
+        add("limits: maxImageDimension2D %u, maxFramebufferWidth %u, maxColorAttachments %u, maxPerStageDescriptorSamplers %u\n",
+            props.limits.maxImageDimension2D, props.limits.maxFramebufferWidth, props.limits.maxColorAttachments,
+            props.limits.maxPerStageDescriptorSamplers);
+        if (g.surface)
+        {
+            uint32_t modes = 0;
+            vkGetPhysicalDeviceSurfacePresentModesKHR(g.physical, g.surface, &modes, nullptr);
+            std::vector<VkPresentModeKHR> list(modes);
+            if (modes) vkGetPhysicalDeviceSurfacePresentModesKHR(g.physical, g.surface, &modes, list.data());
+            out += "surface present modes:";
+            for (VkPresentModeKHR mode : list) { add(" %d", int(mode)); }
+            out += "\n";
+        }
+        uint32_t count = 0;
+        vkEnumerateDeviceExtensionProperties(g.physical, nullptr, &count, nullptr);
+        std::vector<VkExtensionProperties> extensions(count);
+        if (count) vkEnumerateDeviceExtensionProperties(g.physical, nullptr, &count, extensions.data());
+        out += "device extensions:";
+        for (const VkExtensionProperties& e : extensions) { out += ' '; out += e.extensionName; }
+        out += "\n";
+    }
+    return out;
+}
 
 #endif  // PES17_HAVE_VULKAN && PES17_USE_SDL

@@ -29,6 +29,14 @@ import java.util.Locale
  *     game.log       the runtime's log for the stretch (and what led up to it)
  *     logcat.txt     Android's own log for the app, which holds crashes the runtime log cannot
  *     screenshot.png the picture at the moment of stopping
+ *     frames/        a small JPEG of the window every half second (the last 90 s), to see what the
+ *                    screen showed; a flicker that is quicker than that shows as the odd black frame
+ *     engine.txt     what the engine really ran with: PES17_* options and switch files as they were at
+ *                    the start and at the stop, swapchain and present counts (upscaled, plain,
+ *                    empty, let go), the display clock, Vulkan version, driver, features, extensions
+ *     exits.txt      how earlier runs ended, per Android (native crash, ANR, low memory); beside it the
+ *                    last-crash-*.txt files and launcher.log when they exist
+ *     display.txt    the panel's refresh rate and modes, density, HDR, the window's size
  *     <name>.macro   the controller input of the stretch, replayable with Macro (also copied
  *                    to files/macros so it can be played from the menu)
  *
@@ -54,6 +62,10 @@ class CaptureSession(private val activity: Activity, private val prefs: Prefs) {
     private var startedWall = 0L
     private var logOffset = 0L
     private lateinit var folder: File
+    private var engineAtStart = ""
+    private var frameSurface: SurfaceView? = null
+    private var frameCount = 0
+    @Volatile private var grabbing = false
 
     /** Called with the elapsed seconds, to keep the button's label current. */
     var onTick: ((Int) -> Unit)? = null
@@ -62,19 +74,24 @@ class CaptureSession(private val activity: Activity, private val prefs: Prefs) {
         override fun run() {
             if (!active) return
             sample()
+            grabFrame()
             onTick?.invoke(((SystemClock.elapsedRealtime() - startedAt) / 1000).toInt())
             handler.postDelayed(this, 500)
         }
     }
 
-    fun start() {
+    fun start(surface: SurfaceView? = null) {
         if (active) return
+        frameSurface = surface
+        frameCount = 0
+        engineAtStart = engineReport()
         samples.setLength(samples.indexOf("\n") + 1)
         fpsMin = Float.MAX_VALUE; fpsMax = 0f; fpsSum = 0.0; worstFrameMs = 0f; count = 0
         startedAt = SystemClock.elapsedRealtime()
         startedWall = System.currentTimeMillis()
         logOffset = File(base, "game.log").let { if (it.isFile) it.length() else 0L }
         folder = File(base, "captures/pending").apply { deleteRecursively(); mkdirs() }
+        File(folder, "frames").mkdirs()
         Log.i(TAG, "capture started")
         // The renderer's view of the moments before the start, and a frame.
         requestRendererCapture()
@@ -92,6 +109,7 @@ class CaptureSession(private val activity: Activity, private val prefs: Prefs) {
         active = false
         handler.removeCallbacks(tick)
         sample()
+        frameSurface = null
         requestRendererCapture()
         val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date(startedWall))
         val clean = name.trim().map { if (it.isLetterOrDigit() || it == '-' || it == '_') it else '_' }
@@ -160,6 +178,76 @@ class CaptureSession(private val activity: Activity, private val prefs: Prefs) {
         return info.availMem shr 20
     }
 
+    private fun engineReport(): String =
+        try { NativeBridge.nativeEngineReport() } catch (error: Throwable) { "(engine report failed: $error)\n" }
+
+    /**
+     * A small JPEG of what the window shows, every tick, into frames/. The newest 180 are kept
+     * (90 s), so a long capture does not fill the phone.
+     */
+    private fun grabFrame() {
+        val surface = frameSurface ?: return
+        if (grabbing || surface.width <= 0 || surface.height <= 0 || !::folder.isInitialized) return
+        grabbing = true
+        val at = SystemClock.elapsedRealtime() - startedAt
+        val number = frameCount++
+        val directory = File(folder, "frames")
+        try {
+            val bitmap = Bitmap.createBitmap(surface.width / 4, surface.height / 4, Bitmap.Config.ARGB_8888)
+            PixelCopy.request(surface, bitmap, { result ->
+                if (result == PixelCopy.SUCCESS) {
+                    Thread {
+                        try {
+                            File(directory, "f%04d_%dms.jpg".format(Locale.US, number, at)).outputStream().use {
+                                bitmap.compress(Bitmap.CompressFormat.JPEG, 70, it)
+                            }
+                            directory.listFiles()?.sortedBy { it.name }?.dropLast(180)?.forEach { it.delete() }
+                        } catch (_: Throwable) {
+                        }
+                        grabbing = false
+                    }.start()
+                } else grabbing = false
+            }, handler)
+        } catch (_: Throwable) {
+            grabbing = false
+        }
+    }
+
+    /** Why recent runs of the app ended, from the system (API 30+): a native crash, low memory, an ANR. */
+    private fun exitReport(): String {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return "not available before Android 11\n"
+        return try {
+            val manager = activity.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            val reasons = manager.getHistoricalProcessExitReasons(null, 0, 8)
+            if (reasons.isEmpty()) "no earlier exits recorded\n"
+            else reasons.joinToString("\n") {
+                "${java.util.Date(it.timestamp)} ${it.processName} pid ${it.pid}: reason ${it.reason} " +
+                    "status ${it.status} importance ${it.importance} rss ${it.rss / 1024} MB: ${it.description ?: ""}"
+            } + "\n(reason 4 = native crash, 5 = ANR, 3 = low memory, 2 = signaled, 10 = user requested)\n"
+        } catch (error: Throwable) {
+            "exit reasons failed: $error\n"
+        }
+    }
+
+    private fun displayReport(): String {
+        val out = StringBuilder()
+        @Suppress("DEPRECATION")
+        val display = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) activity.display else activity.windowManager.defaultDisplay
+        if (display == null) return "no display\n"
+        out.append("display: ${display.name}, refresh now ${display.refreshRate} Hz\n")
+        val mode = display.mode
+        out.append("mode now: ${mode.physicalWidth}x${mode.physicalHeight} at ${mode.refreshRate} Hz\n")
+        out.append("modes:")
+        for (m in display.supportedModes) out.append(" ${m.physicalWidth}x${m.physicalHeight}@${"%.2f".format(Locale.US, m.refreshRate)}")
+        out.append("\n")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
+            out.append("HDR types: ${display.hdrCapabilities?.supportedHdrTypes?.joinToString() ?: "none"}, wide colour ${display.isWideColorGamut}\n")
+        val metrics = activity.resources.displayMetrics
+        out.append("density ${metrics.densityDpi} dpi, window ${frameSurface?.width}x${frameSurface?.height}\n")
+        out.append("preferred refresh in prefs: 60 Hz lock ${prefs.prefer60Hz}\n")
+        return out.toString()
+    }
+
     private fun requestRendererCapture() {
         try {
             File(base, "capture_request").writeText("1")
@@ -207,6 +295,18 @@ class CaptureSession(private val activity: Activity, private val prefs: Prefs) {
         val macro = File(Macro.directory(activity), "$name.macro")
         if (macro.isFile) macro.copyTo(File(target, "$name.macro"), overwrite = true)
 
+        // Faults the capture itself cannot see because the run that had them is over: the last crash
+        // each process left (internal storage), the launcher's log, and how Android says earlier
+        // runs of this app ended (killed for memory, native crash, ANR).
+        for (name in listOf("last-crash-game.txt", "last-crash-launcher.txt", "launcher.log")) {
+            val file = File(activity.filesDir, name)
+            if (file.isFile && file.length() > 0)
+                try { File(target, name).writeText(file.readTextTail(200_000)) } catch (_: Throwable) { }
+        }
+        File(target, "exits.txt").writeText(exitReport())
+        File(target, "engine.txt").writeText(
+            "=== at the start of the capture ===\n$engineAtStart\n=== at the stop ===\n${engineReport()}")
+        File(target, "display.txt").writeText(displayReport())
         File(target, "summary.txt").writeText(summary(name, note, events))
     }
 

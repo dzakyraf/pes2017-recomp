@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <string>
 
 // The window and Vulkan device. It runs on its own thread -- the guest owns the
 // main thread and never gives it back -- and degrades to headless if there is
@@ -26,4 +27,7 @@ namespace vk
 
     bool Running();
     uint64_t PresentedFrames();
+    // The window thread's state for a bug report: swapchain, present counts (upscaled, plain, empty,
+    // let go), the display's clock, and the device (Vulkan version, driver, features, extensions).
+    std::string PresenterReport();
 }

@@ -32,6 +32,8 @@
 #include <jni.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <sys/stat.h>
+#include <dirent.h>
 
 #include <algorithm>
 #include <atomic>
@@ -688,6 +690,54 @@ PES17_NATIVE(jstring, nativeRendererInfo)(JNIEnv* env, jobject)
     info += "|";
     info += vk::pipeline::TextureCompressionBC() ? "Hardware BC" : "CPU Decompress (Mali Fallback)";
     return FromString(env, info);
+}
+
+extern char** environ;
+
+// What the engine is really running with, for a capture: every PES17_ option in this process (what the
+// Settings screens and files/env_override resolved to, not what the switches say), the switch files in
+// the app's folder, and the window thread's state (vk::PresenterReport).
+PES17_NATIVE(jstring, nativeEngineReport)(JNIEnv* env, jobject)
+{
+    std::string text = "options set in the engine (PES17_*):\n";
+    std::vector<std::string> options;
+    for (char** entry = environ; entry && *entry; ++entry)
+        if (strncmp(*entry, "PES17_", 6) == 0) options.emplace_back(*entry);
+    std::sort(options.begin(), options.end());
+    for (const std::string& option : options) text += "  " + option + "\n";
+    if (options.empty()) text += "  (none)\n";
+
+    text += "switch files in " + g_paths.external + ":\n";
+    if (DIR* dir = opendir(g_paths.external.c_str()))
+    {
+        std::vector<std::string> files;
+        while (const dirent* entry = readdir(dir))
+        {
+            struct stat info{};
+            const std::string path = g_paths.external + "/" + entry->d_name;
+            if (entry->d_name[0] != '.' && stat(path.c_str(), &info) == 0 && S_ISREG(info.st_mode) && info.st_size < 4096)
+                files.push_back(entry->d_name);
+        }
+        closedir(dir);
+        std::sort(files.begin(), files.end());
+        for (const std::string& name : files)
+        {
+            std::string body;
+            if (FILE* file = fopen((g_paths.external + "/" + name).c_str(), "r"))
+            {
+                char chunk[256];
+                size_t n = fread(chunk, 1, sizeof(chunk) - 1, file);
+                chunk[n] = 0;
+                body = chunk;
+                fclose(file);
+            }
+            for (char& c : body) if (c == '\n') c = ' ';
+            text += "  " + name + (body.empty() ? "" : ": " + body) + "\n";
+        }
+        if (files.empty()) text += "  (none)\n";
+    }
+    text += vk::PresenterReport();
+    return FromString(env, text);
 }
 
 PES17_NATIVE(void, nativeRunConsoleCommand)(JNIEnv* env, jobject, jstring command)

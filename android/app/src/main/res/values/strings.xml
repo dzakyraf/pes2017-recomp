@@ -324,6 +324,22 @@
     <string name="capture_save">Save</string>
     <string name="capture_discard">Discard</string>
     <string name="capture_saving">Saving\u2026</string>
+    <string name="captures_title">Captures</string>
+    <string name="captures_open">Manage captures</string>
+    <string name="captures_hint">Tap a capture to share it, save it to your Downloads folder, or delete it. Long-press deletes. Each one is a folder of logs, settings, engine and display reports and screen frames.</string>
+    <string name="captures_none">No captures yet. Turn on Settings > Advanced > Developer tools, then press CAPTURE in a match.</string>
+    <string name="captures_summary">%1$d captures, %2$s</string>
+    <string name="captures_row">%1$s, %2$d files</string>
+    <string name="captures_save_folder">Save to Downloads</string>
+    <string name="captures_saved_to">Saved to %1$s</string>
+    <string name="captures_save_failed">Could not make or save the zip.</string>
+    <string name="captures_delete">Delete</string>
+    <string name="captures_delete_one">Delete this capture from the phone?</string>
+    <string name="captures_clear_all">Delete all captures</string>
+    <string name="captures_clear_all_body">Every capture on the phone will be deleted. Ones you have shared or saved elsewhere are not touched.</string>
+    <string name="capture_saved_title">Capture saved</string>
+    <string name="capture_saved_body">Saved as captures/%1$s. Share it to send everything in the folder (log, settings, engine and display report, screen frames) as one zip.</string>
+    <string name="capture_share">Share</string>
     <string name="capture_saved">Saved: captures/%1$s. Tell Claude its name.</string>
     <string name="capture_failed">Capture failed: %1$s</string>
 </resources>

@@ -169,6 +169,9 @@ class SettingsActivity : AppCompatActivity() {
             storage.text = getString(R.string.shaders_cleared)
             refreshStorage(storage)
         }
+        findViewById<Button>(R.id.manage_captures).setOnClickListener {
+            startActivity(Intent(this, CapturesActivity::class.java))
+        }
         findViewById<Button>(R.id.clear_logs).setOnClickListener {
             listOf("game.log", "launcher.log", "last-crash-game.txt", "last-crash-launcher.txt").forEach {
                 try {
