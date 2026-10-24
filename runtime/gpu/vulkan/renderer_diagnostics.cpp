@@ -72,7 +72,7 @@ namespace vk::renderer::detail
     // is no window, and the only way to compare two runs.
     const char* FrameDumpDirectory()
     {
-        static const char* dir = diag::Text("PES17_DUMP_FRAMES");
+        static const char* dir = env::Text("PES17_DUMP_FRAMES");
         return dir;
     }
 
@@ -82,7 +82,7 @@ namespace vk::renderer::detail
     // fixed second of the same scripted run is the same moment.
     bool FrameDumpDue()
     {
-        static const double after = diag::Real("PES17_DUMP_FRAMES_AFTER_SECONDS");
+        static const double after = env::Real("PES17_DUMP_FRAMES_AFTER_SECONDS");
         if (after <= 0.0) return true;
         static const std::chrono::steady_clock::time_point start =
             std::chrono::steady_clock::now();
@@ -92,7 +92,7 @@ namespace vk::renderer::detail
 
     uint64_t FrameDumpEvery()
     {
-        static const uint64_t n = std::max<uint64_t>(diag::Number("PES17_DUMP_FRAME_EVERY", 600), 1);
+        static const uint64_t n = std::max<uint64_t>(env::Number("PES17_DUMP_FRAME_EVERY", 600), 1);
         return n;
     }
 
@@ -600,8 +600,9 @@ namespace vk::renderer::detail
 
     FrameReadBacks PlanReadBacks()
     {
+        // The frame and target dumps (PES17_DUMP_FRAMES, PES17_DUMP_TARGETS) are in
+        // every build, read with env:: -- a null check a frame until the switch is set.
         FrameReadBacks plan;
-        if constexpr (!diag::kOn) return plan;
         plan.dump = FrameDumpDirectory() && ((g.frames + 1) % FrameDumpEvery()) == 0 &&
                     FrameDumpDue();
         plan.keep = FlashFramesKept() > 0;
@@ -630,15 +631,14 @@ namespace vk::renderer::detail
 
     void ExamineFrame(bool worldDrawn, const FrameReadBacks& plan)
     {
-        if constexpr (!diag::kOn) return;
         if (TracePasses() && DiagnoseHere()) g.passFrames++;
         std::vector<uint8_t> frame;
         if (plan.Any() && g.readBackMapped)
             frame.assign(g.readBackMapped,
                          g.readBackMapped + size_t(g.presentWidth) * g.presentHeight * 4);
 
-        static const bool onlyWorld = diag::Flag("PES17_DUMP_WORLD_FRAMES");
-        static const bool targetsToo = diag::Flag("PES17_DUMP_TARGETS");
+        static const bool onlyWorld = env::Flag("PES17_DUMP_WORLD_FRAMES");
+        static const bool targetsToo = env::Flag("PES17_DUMP_TARGETS");
         if (plan.dump && !frame.empty() && (!onlyWorld || worldDrawn))
         {
             char name[64];
