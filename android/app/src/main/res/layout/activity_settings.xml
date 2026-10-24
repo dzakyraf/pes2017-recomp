@@ -40,11 +40,6 @@
             android:text="@string/tab_graphics" />
 
         <Button
-            android:id="@+id/tab_performance"
-            style="@style/TabEntry"
-            android:text="@string/tab_performance" />
-
-        <Button
             android:id="@+id/tab_controls"
             style="@style/TabEntry"
             android:text="@string/tab_controls" />
@@ -203,6 +198,23 @@
                     android:text="@string/section_image_quality" />
 
                 <LinearLayout style="@style/SettingGroup">
+
+                    <TextView
+                        android:id="@+id/render_scale_label"
+                        style="@style/SettingLabel"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content" />
+
+                    <SeekBar
+                        android:id="@+id/render_scale"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content" />
+
+                    <TextView
+                        style="@style/SettingHint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/render_scale_hint" />
 
                     <TextView
                         android:id="@+id/scene_scale_label"
@@ -548,23 +560,6 @@
                     android:text="@string/section_rendering" />
 
                 <LinearLayout style="@style/SettingGroup">
-
-                    <TextView
-                        android:id="@+id/render_scale_label"
-                        style="@style/SettingLabel"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content" />
-
-                    <SeekBar
-                        android:id="@+id/render_scale"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content" />
-
-                    <TextView
-                        style="@style/SettingHint"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/render_scale_hint" />
 
                     <androidx.appcompat.widget.SwitchCompat
                         android:id="@+id/load_scale"

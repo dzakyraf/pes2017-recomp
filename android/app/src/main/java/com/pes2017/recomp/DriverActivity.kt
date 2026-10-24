@@ -81,6 +81,8 @@ class DriverActivity : AppCompatActivity() {
             pickZip.launch(intent)
         }
 
+        findViewById<Button>(R.id.download_driver).setOnClickListener { chooseDownload(it as Button) }
+
         list.setOnItemClickListener { _, _, position, _ ->
             if (position == 0) chooseSystem() else choose(drivers[position - 1])
         }
@@ -89,6 +91,40 @@ class DriverActivity : AppCompatActivity() {
             true
         }
         refresh()
+    }
+
+    private fun chooseDownload(button: Button) {
+        val renderer = try { DeviceProfile.detect(this, prefs).specs.gpu } catch (_: Throwable) { "" }
+        if (!DriverDownloader.suitable(renderer)) {
+            Toast.makeText(this, R.string.driver_none_for_gpu, Toast.LENGTH_LONG).show()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.download_driver)
+            .setItems(arrayOf(getString(R.string.driver_source_recommended), getString(R.string.driver_source_purple))) { _, which ->
+                downloadDriver(button, renderer, DriverDownloader.Choice.values()[which])
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun downloadDriver(button: Button, renderer: String, choice: DriverDownloader.Choice) {
+        button.isEnabled = false
+        Toast.makeText(this, R.string.driver_downloading, Toast.LENGTH_SHORT).show()
+        Thread {
+            val result = DriverDownloader.download(this, renderer, store, choice)
+            runOnUiThread {
+                button.isEnabled = true
+                when (result) {
+                    is DriverDownloader.Result.Done -> {
+                        choose(result.driver)
+                        Toast.makeText(this, getString(R.string.driver_downloaded, result.driver.name), Toast.LENGTH_LONG).show()
+                    }
+                    is DriverDownloader.Result.Failed ->
+                        Toast.makeText(this, result.reason, Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
     }
 
     private fun refresh() {

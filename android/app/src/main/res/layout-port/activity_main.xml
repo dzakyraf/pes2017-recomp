@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Portrait variant (same ids): entries on top, details panel below, squad
+     faded along the foot. The landscape original is layout/activity_main.xml.
+     The launcher, laid out like PES 6's main menu: the
+     wordmark top-left, a left-aligned list of italic entries with a cursor and
+     a band on the chosen one, the hero picture on the right, the chosen entry's
+     details on a panel between, and a strip along the foot that the build
+     line scrolls in. Landscape, one screen, nothing scrolls. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/pes_page">
+
+    <ImageView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginBottom="26dp"
+        android:adjustViewBounds="true"
+        android:alpha="0.35"
+        android:scaleType="fitEnd"
+        android:src="@drawable/launcher_players"
+        android:importantForAccessibility="no" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="8dp">
+
+            <ImageView
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:adjustViewBounds="true"
+                android:scaleType="fitStart"
+                android:src="@drawable/launcher_logo"
+                android:contentDescription="@string/wordmark" />
+
+            <TextView
+                android:id="@+id/version_tag"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="end"
+                android:textColor="@color/pes_muted"
+                android:textSize="9sp"
+                android:fontFamily="sans-serif"
+                tools:text="0.0.2-alpha · build 16 · EUROPE" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginTop="4dp"
+            android:orientation="vertical"
+            android:paddingStart="10dp"
+            android:paddingEnd="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="3"
+                android:layout_marginEnd="8dp"
+                android:orientation="vertical">
+
+                <Button
+                    android:id="@+id/play"
+                    style="@style/MenuEntry"
+                    android:text="@string/play"
+                    android:textColor="@color/pes_red"
+                    android:textSize="19sp" />
+
+                <Button
+                    android:id="@+id/select_folder"
+                    style="@style/MenuEntry"
+                    android:text="@string/entry_select_folder" />
+
+                <Button
+                    android:id="@+id/install"
+                    style="@style/MenuEntry"
+                    android:text="@string/entry_install" />
+
+                <Button
+                    android:id="@+id/settings"
+                    style="@style/MenuEntry"
+                    android:text="@string/entry_settings" />
+
+                <Button
+                    android:id="@+id/driver"
+                    style="@style/MenuEntry"
+                    android:text="@string/graphics_driver" />
+
+                <Button
+                    android:id="@+id/log"
+                    style="@style/MenuEntry"
+                    android:text="@string/view_log" />
+
+                <Button
+                    android:id="@+id/entry_updates"
+                    style="@style/MenuEntry"
+                    android:text="@string/check_updates" />
+
+                <Button
+                    android:id="@+id/entry_quit"
+                    style="@style/MenuEntry"
+                    android:text="@string/quit_launcher" />
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/direct_launch_switch"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="32dp"
+                    android:layout_marginTop="2dp"
+                    android:layout_marginBottom="4dp"
+                    android:text="@string/direct_launch"
+                    android:textColor="@color/pes_muted"
+                    android:textSize="10sp"
+                    android:fontFamily="sans-serif-medium" />
+            </LinearLayout>
+
+            <!-- The chosen entry's details: a PES 6 settings panel, title strip and body. -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:layout_marginTop="6dp"
+                android:layout_marginBottom="8dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/bg_panel"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/detail_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_panel_title"
+                    android:paddingStart="10dp"
+                    android:paddingTop="5dp"
+                    android:paddingBottom="4dp"
+                    android:text="@string/detail_default_title"
+                    android:textColor="@color/pes_on_dark"
+                    android:textSize="14sp"
+                    android:textStyle="bold|italic"
+                    android:textAllCaps="true"
+                    android:fontFamily="sans-serif-condensed" />
+
+                <TextView
+                    android:id="@+id/detail_text"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:paddingTop="8dp"
+                    android:maxLines="6"
+                    android:ellipsize="end"
+                    android:text="@string/detail_default_text"
+                    android:textColor="@color/pes_text"
+                    android:textSize="11sp"
+                    android:lineSpacingExtra="2dp"
+                    android:fontFamily="sans-serif" />
+
+                <TextView
+                    android:id="@+id/status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_setting_row"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="8dp"
+                    android:maxLines="5"
+                    android:ellipsize="end"
+                    android:textColor="@color/pes_blue"
+                    android:textSize="11sp"
+                    android:lineSpacingExtra="2dp"
+                    android:fontFamily="sans-serif-medium" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- The help strip along the foot: device, driver and build, scrolling. -->
+        <TextView
+            android:id="@+id/footer"
+            android:layout_width="match_parent"
+            android:layout_height="26dp"
+            android:background="@drawable/bg_ticker"
+            android:gravity="center_vertical"
+            android:paddingTop="2dp"
+            android:singleLine="true"
+            android:ellipsize="marquee"
+            android:marqueeRepeatLimit="marquee_forever"
+            android:focusable="false"
+            android:textColor="@color/pes_on_dark"
+            android:textSize="12sp"
+            android:fontFamily="sans-serif-condensed" />
+    </LinearLayout>
+</FrameLayout>

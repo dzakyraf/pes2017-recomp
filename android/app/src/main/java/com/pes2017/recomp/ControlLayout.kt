@@ -113,7 +113,7 @@ class ControlLayout private constructor(
 
     companion object {
         private const val FILE_NAME = "controls.json"
-        private const val FORMAT_VERSION = 5
+        private const val FORMAT_VERSION = 6
 
         fun load(context: Context): ControlLayout {
             // The whole screen (the match is full screen, into the cutout), in
@@ -180,7 +180,7 @@ class ControlLayout private constructor(
          *  - L1 / LB (change player) above the actions, the next thing the thumb
          *    reaches for when defending.
          *  - The skill stick above the sprint button; L2 / R2 small, under the
-         *    HUD and the MENU button at the top; pause and share top centre.
+         *    HUD and the MENU button at the top; start and select top centre.
          *
          * Positions are in dp from the nearest edge, so the thumb distances are
          * the same on every phone and a wider screen only opens up the middle.
@@ -215,16 +215,15 @@ class ControlLayout private constructor(
                     place("x", ControlKind.BUTTON, NativeBridge.X, "X", -168f, -110f, 68f),
                     place("y", ControlKind.BUTTON, NativeBridge.Y, "Y", -110f, -168f, 68f),
 
-                    // Sprint beside the actions; change player above them.
-                    place("rb", ControlKind.BUTTON, NativeBridge.RB, "RB", -235f, -52f, 72f),
-                    place("lb", ControlKind.BUTTON, NativeBridge.LB, "LB", -44f, -210f, 64f),
+                    // The shoulders where a pad has them: L2 / L1 along the top left,
+                    // R1 / R2 along the top right, triggers outermost.
+                    place("lt", ControlKind.TRIGGER, 0, "LT", 44f, 76f, 56f),
+                    place("lb", ControlKind.BUTTON, NativeBridge.LB, "LB", 110f, 76f, 56f),
+                    place("rb", ControlKind.BUTTON, NativeBridge.RB, "RB", -110f, 76f, 56f),
+                    place("rt", ControlKind.TRIGGER, 1, "RT", -44f, 76f, 56f),
 
-                    // The skill stick, above sprint.
+                    // The skill stick, left of the actions.
                     place("right_stick", ControlKind.STICK, 1, "RS", -250f, -170f, 100f, 0.40f),
-
-                    // The triggers, used less: small, up top.
-                    place("rt", ControlKind.TRIGGER, 1, "RT", -130f, 84f, 56f),
-                    place("lt", ControlKind.TRIGGER, 0, "LT", 50f, 84f, 56f),
 
                     // Stick clicks: kept for the editor, hidden until wanted.
                     place("l3", ControlKind.BUTTON, NativeBridge.L3, "L3", 200f, -40f, 52f, visible = false),
@@ -232,7 +231,7 @@ class ControlLayout private constructor(
 
                     // Menus have to be found at a glance in a football game.
                     place("start", ControlKind.BUTTON, NativeBridge.START, "START", centre + 60f, 37f, 54f, 0.75f),
-                    place("back", ControlKind.BUTTON, NativeBridge.BACK, "BACK", centre - 40f, 37f, 54f, 0.75f),
+                    place("back", ControlKind.BUTTON, NativeBridge.BACK, "SELECT", centre - 40f, 37f, 54f, 0.75f),
                 ),
                 widthDp, heightDp,
             )
@@ -252,8 +251,8 @@ class ControlLayout private constructor(
                 "rt" -> "R2"
                 "stick" -> "L"
                 "right_stick" -> "R"
-                "start" -> "OPTIONS"
-                "back" -> "SHARE"
+                "start" -> "START"
+                "back" -> "SELECT"
                 else -> element.label
             }
         }

@@ -6,6 +6,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
@@ -34,6 +35,37 @@ class ControlEditPanel(
     private val visible: SwitchCompat = view.findViewById(R.id.edit_visible)
     private val toggle: SwitchCompat = view.findViewById(R.id.edit_toggle)
     private val snap: SwitchCompat = view.findViewById(R.id.edit_snap)
+    /** What is left of the editor while nothing is selected: a hint and the way out. */
+    private val idle: View = LinearLayout(activity).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setBackgroundColor(0xB3101418.toInt())
+        val dp = activity.resources.displayMetrics.density
+        setPadding((12 * dp).roundToInt(), (4 * dp).roundToInt(), (4 * dp).roundToInt(), (4 * dp).roundToInt())
+        addView(TextView(activity).apply {
+            setText(R.string.edit_pick_one)
+            setTextColor(0xFFFFFFFF.toInt())
+            textSize = 12f
+        })
+    }
+    private val resetOne: Button = view.findViewById(R.id.edit_reset_one)
+
+    /** Reset this / Reset all / Done: top right, on screen for the whole edit. */
+    private val actions: View = LinearLayout(activity).apply {
+        orientation = LinearLayout.HORIZONTAL
+        val dp = activity.resources.displayMetrics.density
+        setPadding((4 * dp).roundToInt(), (4 * dp).roundToInt(), (4 * dp).roundToInt(), (4 * dp).roundToInt())
+        for (id in intArrayOf(R.id.edit_reset_one, R.id.edit_reset_all, R.id.edit_done)) {
+            val button = view.findViewById<Button>(id)
+            (button.parent as ViewGroup).removeView(button)
+            button.textSize = 12f
+            button.minWidth = 0
+            button.minimumWidth = 0
+            addView(button, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { marginStart = (6 * dp).roundToInt() })
+        }
+    }
     private var current: ControlElement? = null
     private var attached = false
     private var atTop = false
@@ -83,7 +115,7 @@ class ControlEditPanel(
             save()
         }
         snap.setOnCheckedChangeListener { _, checked -> overlay.snapToGrid = checked }
-        view.findViewById<Button>(R.id.edit_reset_one).setOnClickListener {
+        actions.findViewById<Button>(R.id.edit_reset_one).setOnClickListener {
             val element = current ?: return@setOnClickListener
             overlay.layout.reset(element.id)
             overlay.layout.find(element.id)?.let { overlay.keepApart(it) }
@@ -91,7 +123,7 @@ class ControlEditPanel(
             overlay.refresh()
             save()
         }
-        view.findViewById<Button>(R.id.edit_reset_all).setOnClickListener {
+        actions.findViewById<Button>(R.id.edit_reset_all).setOnClickListener {
             AlertDialog.Builder(activity)
                 .setTitle(R.string.reset_all)
                 .setMessage(R.string.reset_all_explained)
@@ -104,7 +136,7 @@ class ControlEditPanel(
                 }
                 .show()
         }
-        view.findViewById<Button>(R.id.edit_done).setOnClickListener { onDone() }
+        actions.findViewById<Button>(R.id.edit_done).setOnClickListener { onDone() }
     }
 
     private fun save() = overlay.layout.save(activity)
@@ -112,6 +144,20 @@ class ControlEditPanel(
     fun attach() {
         if (attached) return
         root.addView(view, params(top = false))
+        root.addView(
+            actions,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP or Gravity.END,
+            ),
+        )
+        root.addView(
+            idle,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL,
+            ),
+        )
         atTop = false
         attached = true
         show(null)
@@ -120,6 +166,8 @@ class ControlEditPanel(
     fun detach() {
         if (!attached) return
         root.removeView(view)
+        root.removeView(idle)
+        root.removeView(actions)
         attached = false
     }
 
@@ -130,6 +178,10 @@ class ControlEditPanel(
 
     fun show(element: ControlElement?) {
         current = element
+        // Only a selected control has anything to adjust; until then the strip stays out of the way.
+        view.visibility = if (element == null) View.GONE else View.VISIBLE
+        idle.visibility = if (element == null) View.VISIBLE else View.GONE
+        resetOne.isEnabled = element != null
         val wantTop = element != null && element.yFrac > 0.55f
         if (attached && wantTop != atTop) {
             view.layoutParams = params(wantTop)

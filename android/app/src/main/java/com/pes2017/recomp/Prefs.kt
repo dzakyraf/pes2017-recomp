@@ -301,6 +301,11 @@ class Prefs(context: Context) {
         get() = store.getString(KEY_LAST_SOURCE, "") ?: ""
         set(value) = store.edit().putString(KEY_LAST_SOURCE, value).apply()
 
+    /** Set once the first-run driver download has been tried, hit or miss. */
+    var driverAutoTried: Boolean
+        get() = store.getBoolean(KEY_DRIVER_AUTO, false)
+        set(value) = store.edit().putBoolean(KEY_DRIVER_AUTO, value).apply()
+
     /** The update this phone was told about and skipped, by tag. */
     var seenUpdateTag: String
         get() = store.getString(KEY_UPDATE_TAG, "") ?: ""
@@ -372,6 +377,7 @@ class Prefs(context: Context) {
         private const val KEY_LAST_SOURCE = "lastSource"
         private const val KEY_WELCOME = "seenWelcome"
         private const val KEY_AUTO_LAUNCH = "autoLaunch"
+        private const val KEY_DRIVER_AUTO = "driverAutoTried"
         private const val KEY_UPDATE_TAG = "seenUpdateTag"
         private const val KEY_PREWARM_ALL = "prewarmAllShaders"
         private const val KEY_PRESET = "performancePreset"

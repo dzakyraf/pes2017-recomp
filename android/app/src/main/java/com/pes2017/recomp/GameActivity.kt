@@ -71,7 +71,7 @@ class GameActivity : AppCompatActivity(), NativeListener {
     private lateinit var hudExpandedCard: LinearLayout
     private lateinit var hudExpandedText: TextView
     private var hudIsExpanded = false
-    private lateinit var menuButton: Button
+    private lateinit var menuButton: View
     private lateinit var captureButton: Button
     private lateinit var macroButton: Button
     private var editPanel: ControlEditPanel? = null
@@ -569,13 +569,19 @@ class GameActivity : AppCompatActivity(), NativeListener {
             ).apply { topMargin = pad(6); marginStart = pad(8) }
         )
 
-        menuButton = smallButton(getString(R.string.menu)) { showMenu() }
+        // Icon only, a square of its own: a text Button keeps its minimum width.
+        menuButton = android.widget.ImageButton(this).apply {
+            setImageResource(R.drawable.ic_menu_hamburger)
+            setBackgroundColor(Color.argb(140, 60, 60, 60))
+            scaleType = android.widget.ImageView.ScaleType.CENTER
+            alpha = 0.55f
+            contentDescription = getString(R.string.menu)
+            setOnClickListener { showMenu() }
+        }
         root.addView(
             menuButton,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP or Gravity.END,
-            ).apply { topMargin = pad(6); marginEnd = pad(6) }
+            FrameLayout.LayoutParams(pad(38), pad(34), Gravity.TOP or Gravity.END)
+                .apply { topMargin = pad(6); marginEnd = pad(6) }
         )
 
         // Debug: one press starts a capture, the next stops it and saves a folder with
@@ -586,7 +592,7 @@ class GameActivity : AppCompatActivity(), NativeListener {
             FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.TOP or Gravity.END,
-            ).apply { topMargin = pad(6); marginEnd = pad(76) }
+            ).apply { topMargin = pad(6); marginEnd = pad(50) }
         )
         // Debug: record a controller macro without opening the menu; the next press stops it.
         macroButton = smallButton("REC MACRO") { toggleRecording() }
@@ -595,7 +601,7 @@ class GameActivity : AppCompatActivity(), NativeListener {
             FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.TOP or Gravity.END,
-            ).apply { topMargin = pad(6); marginEnd = pad(176) }
+            ).apply { topMargin = pad(6); marginEnd = pad(130) }
         )
         applyDeveloperTools()
 
@@ -878,6 +884,9 @@ class GameActivity : AppCompatActivity(), NativeListener {
         }
         labels.add(getString(if (prefs.touchControls) R.string.hide_touch_controls else R.string.show_touch_controls) to { _: android.content.DialogInterface -> setTouchControls(!prefs.touchControls) })
         labels.add(getString(if (prefs.gamepadEnabled) R.string.disable_gamepad else R.string.enable_gamepad) to { _: android.content.DialogInterface -> setGamepad(!prefs.gamepadEnabled) })
+        labels.add(getString(R.string.qg_menu) to { _: android.content.DialogInterface ->
+            QuickGraphics.show(this, prefs, onApply = { quit() }, onClose = { goFullscreen() })
+        })
         labels.add(getString(R.string.hud_menu) to { _: android.content.DialogInterface -> pickHudLevel() })
         labels.add(getString(R.string.quit) to { _: android.content.DialogInterface -> confirmQuit() })
         AlertDialog.Builder(this)
@@ -890,7 +899,28 @@ class GameActivity : AppCompatActivity(), NativeListener {
             .show()
     }
 
+    /** A physical pad took over: the touch pad is out of the way until the screen is touched. */
+    private var touchHiddenByPad = false
+
+    private fun hideTouchForPad() {
+        if (touchHiddenByPad || !prefs.touchControls || overlay.editing) return
+        touchHiddenByPad = true
+        overlay.releaseEverything()
+        overlay.visibility = View.GONE
+    }
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (touchHiddenByPad && event.actionMasked == MotionEvent.ACTION_DOWN &&
+            event.isFromSource(android.view.InputDevice.SOURCE_TOUCHSCREEN)
+        ) {
+            touchHiddenByPad = false
+            if (prefs.touchControls) overlay.visibility = View.VISIBLE
+        }
+        return super.dispatchTouchEvent(event)
+    }
+
     private fun setTouchControls(on: Boolean) {
+        touchHiddenByPad = false
         prefs.touchControls = on
         overlay.releaseEverything()
         overlay.visibility = if (on) View.VISIBLE else View.GONE
@@ -981,7 +1011,10 @@ class GameActivity : AppCompatActivity(), NativeListener {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         // The dialogs and the editor come first; a pad should not fire a gun
         // through a menu.
-        if (started && !overlay.editing && pads.onKey(event)) return true
+        if (started && !overlay.editing && pads.onKey(event)) {
+            if (event.action == KeyEvent.ACTION_DOWN) hideTouchForPad()
+            return true
+        }
         return super.dispatchKeyEvent(event)
     }
 

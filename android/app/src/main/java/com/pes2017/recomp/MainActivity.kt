@@ -22,6 +22,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.concurrent.thread
 import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * The launcher: is the game installed, which driver will be used, and the
@@ -52,6 +53,9 @@ class MainActivity : AppCompatActivity() {
     private var detectedSources: List<GameSource> = emptyList()
     private var nativeReady = false
     private var hasAutoLaunched = false
+
+    /** The match asked to be started again with new settings (QuickGraphics). */
+    private var relaunchRequested = false
     private var installRequired = false
     private var pendingInstallId: Long = -1
     private var pendingUpdateUrl: String? = null
@@ -80,6 +84,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         prefs = Prefs(this)
+        relaunchRequested = QuickGraphics.takeRelaunch(intent, prefs)
         // The performance preset this phone starts from, once (DeviceProfile).
         try { DeviceProfile.ensurePreset(this, prefs) } catch (_: Throwable) {}
 
@@ -202,6 +207,31 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         checkForUpdates()
+        predownloadDriver()
+    }
+
+    /**
+     * First run on an Adreno phone: fetch the matching Turnip build in the
+     * background so it is in the driver list. It is only stored; choosing it
+     * is the player's call (Graphics driver).
+     */
+    private fun predownloadDriver() {
+        if (prefs.driverAutoTried) return
+        thread(name = "driver-predownload", isDaemon = true) {
+            val renderer = try { DeviceProfile.detect(this, prefs).specs.gpu } catch (_: Throwable) { "" }
+            if (!DriverDownloader.suitable(renderer)) {
+                prefs.driverAutoTried = true
+                return@thread
+            }
+            val store = DriverStore(this)
+            if (store.list().isNotEmpty()) {
+                prefs.driverAutoTried = true
+                return@thread
+            }
+            // Offline now is not a verdict: try again next launch.
+            val result = DriverDownloader.download(this, renderer, store)
+            if (result is DriverDownloader.Result.Done) prefs.driverAutoTried = true
+        }
     }
 
     override fun onDestroy() {
@@ -210,6 +240,12 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Throwable) {
         }
         super.onDestroy()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (QuickGraphics.takeRelaunch(intent, prefs)) relaunchRequested = true
     }
 
     override fun onResume() {
@@ -408,6 +444,12 @@ class MainActivity : AppCompatActivity() {
             installButton.visibility = android.view.View.GONE
             directLaunchSwitch.visibility = android.view.View.VISIBLE
 
+            if (relaunchRequested) {
+                relaunchRequested = false
+                hasAutoLaunched = true
+                startGameWhenPreviousRunIsGone()
+                return
+            }
             if (prefs.autoLaunch && !hasAutoLaunched) {
                 hasAutoLaunched = true
                 startGame()
@@ -518,6 +560,21 @@ class MainActivity : AppCompatActivity() {
         return File(directory).name
     }
 
+    /**
+     * The run that asked to be restarted is being killed as this is called: a
+     * start now would find its activity still there (it is single task), bring
+     * it forward and lose it a moment later. Wait for its process to be gone.
+     */
+    private fun startGameWhenPreviousRunIsGone(attempt: Int = 0) {
+        val manager = getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager
+        val alive = manager.runningAppProcesses?.any { it.processName == "$packageName:game" } == true
+        if (alive && attempt < 40) {
+            window.decorView.postDelayed({ startGameWhenPreviousRunIsGone(attempt + 1) }, 100)
+        } else {
+            startGame()
+        }
+    }
+
     private fun startGame() {
         if (!nativeReady) return
         // A copy of the saves before every run (SaveBackup), taken before the
@@ -567,31 +624,26 @@ class MainActivity : AppCompatActivity() {
                     setRequestProperty("Accept", "application/vnd.github+json")
                 }
                 if (connection.responseCode == 200) {
-                    val releases = JSONArray(connection.inputStream.bufferedReader().readText())
-                    for (i in 0 until releases.length()) {
-                        val release = releases.getJSONObject(i)
-                        if (release.optBoolean("draft")) continue
-                        val assets = release.optJSONArray("assets") ?: continue
-                        val apk = (0 until assets.length())
-                            .map { assets.getJSONObject(it) }
+                    val release = JSONObject(connection.inputStream.bufferedReader().readText())
+                    val assets = release.optJSONArray("assets")
+                    val apk = assets?.let { list ->
+                        (0 until list.length()).map { list.getJSONObject(it) }
                             .firstOrNull { it.optString("name").endsWith(".apk", ignoreCase = true) }
-                            ?: continue
-                        val tag = release.optString("tag_name")
-                        val code = Regex("APK versionCode:\\s*(\\d+)")
-                            .find(release.optString("body"))?.groupValues?.get(1)?.toIntOrNull() ?: 0
-                        val installed = packageManager.getPackageInfo(packageName, 0).let {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) it.longVersionCode.toInt()
-                            else it.versionCode
-                        }
-                        // Newest release with an APK only: older ones stay buried.
-                        if (code > installed && tag.isNotEmpty() && tag != prefs.seenUpdateTag) {
-                            val page = release.optString("html_url")
-                            val apkUrl = apk.optString("browser_download_url")
-                            val notes = release.optString("body").take(1500)
-                            offered = true
-                            runOnUiThread { showUpdateDialog(tag, page, apkUrl, notes, installed, code) }
-                        }
-                        break
+                    }
+                    val tag = release.optString("tag_name")
+                    val code = Regex("APK versionCode:\\s*(\\d+)")
+                        .find(release.optString("body"))?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                    val installed = packageManager.getPackageInfo(packageName, 0).let {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) it.longVersionCode.toInt()
+                        else it.versionCode
+                    }
+                    // The latest published release only: older ones stay buried.
+                    if (apk != null && code > installed && tag.isNotEmpty() && tag != prefs.seenUpdateTag) {
+                        val page = release.optString("html_url")
+                        val apkUrl = apk.optString("browser_download_url")
+                        val notes = release.optString("body").take(1500)
+                        offered = true
+                        runOnUiThread { showUpdateDialog(tag, page, apkUrl, notes, installed, code) }
                     }
                 }
             } catch (_: Throwable) {
@@ -688,11 +740,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
-        // Where releases are published. Empty until this port has a release
-        // page of its own: an update check must never pull an APK from some
-        // other project's repository. Fill both in together.
-        private const val RELEASES_PAGE = ""
-        private const val RELEASES_API = ""
+        // Where this port publishes releases; the check reads the latest one.
+        private const val RELEASES_PAGE = "https://github.com/dzakyraf/pes2017-recomp/releases/latest"
+        private const val RELEASES_API = "https://api.github.com/repos/dzakyraf/pes2017-recomp/releases/latest"
     }
 
     private fun showLastCrash(crash: String) {

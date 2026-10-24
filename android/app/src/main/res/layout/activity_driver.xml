@@ -39,10 +39,17 @@
         android:text="@string/driver_hint" />
 
     <Button
-        android:id="@+id/import_driver"
+        android:id="@+id/download_driver"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="10dp"
+        android:text="@string/download_driver" />
+
+    <Button
+        android:id="@+id/import_driver"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
         android:text="@string/import_driver" />
 
     <ListView

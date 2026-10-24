@@ -20,10 +20,9 @@ class SettingsActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_TAB = "pes17.tab"
         const val TAB_GRAPHICS = 0
-        const val TAB_PERFORMANCE = 1
-        const val TAB_CONTROLS = 2
-        const val TAB_ADVANCED = 3
-        const val TAB_FILES = 4
+        const val TAB_CONTROLS = 1
+        const val TAB_ADVANCED = 2
+        const val TAB_FILES = 3
     }
 
     private lateinit var prefs: Prefs
@@ -51,10 +50,11 @@ class SettingsActivity : AppCompatActivity() {
         title = getString(R.string.entry_settings)
 
         // ---- tab bar (plain views, no new deps): one page visible at a time ----
-        listOf(R.id.tab_graphics, R.id.tab_performance, R.id.tab_controls, R.id.tab_advanced, R.id.tab_files)
+        listOf(R.id.tab_graphics, R.id.tab_controls, R.id.tab_advanced, R.id.tab_files)
             .forEach { tabButtons.add(findViewById(it)) }
-        listOf(R.id.page_graphics, R.id.page_performance, R.id.page_controls, R.id.page_advanced, R.id.page_files)
+        listOf(R.id.page_graphics, R.id.page_controls, R.id.page_advanced, R.id.page_files)
             .forEach { tabPages.add(findViewById(it)) }
+        // Performance is part of the graphics tab: shown and hidden with it (selectTab).
         tabButtons.forEachIndexed { index, button -> button.setOnClickListener { selectTab(index) } }
         selectTab(intent.getIntExtra(EXTRA_TAB, TAB_GRAPHICS).coerceIn(0, tabPages.size - 1))
 
@@ -311,6 +311,8 @@ class SettingsActivity : AppCompatActivity() {
         tabPages.forEachIndexed { i, page ->
             page.visibility = if (i == index) android.view.View.VISIBLE else android.view.View.GONE
         }
+        findViewById<android.view.View>(R.id.page_performance).visibility =
+            if (index == TAB_GRAPHICS) android.view.View.VISIBLE else android.view.View.GONE
         tabButtons.forEachIndexed { i, button ->
             if (i == index) {
                 button.setBackgroundResource(R.drawable.bg_tab_selected)

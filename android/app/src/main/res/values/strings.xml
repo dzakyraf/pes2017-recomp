@@ -12,6 +12,19 @@
     <string name="close">Close</string>
     <string name="cancel">Cancel</string>
     <string name="reset">Reset</string>
+    <string name="qg_menu">Graphics &amp; performance</string>
+    <string name="qg_title">Graphics &amp; performance</string>
+    <string name="qg_preset">Preset</string>
+    <string name="qg_scene">Scene resolution: %1$d%%</string>
+    <string name="qg_scale">Internal resolution: %1$dx (1x = 1280x720; 2x or 3x for powerful GPUs)</string>
+    <string name="qg_fps">Frame rate limit: %1$d</string>
+    <string name="qg_msaa">Anti-aliasing (MSAA)</string>
+    <string name="qg_fsr">FSR upscaler</string>
+    <string name="qg_heat">Lower the picture as the phone heats</string>
+    <string name="qg_crowd">Crowd</string>
+    <string name="qg_lowmem">Low memory mode (no shadow buffer)</string>
+    <string name="qg_apply">Apply &amp; restart</string>
+    <string name="qg_note">The picture settings are read as a match starts, so applying them restarts the game (about as long as starting it). Your saves are kept.</string>
     <string name="done">Done</string>
     <string name="share">Share</string>
     <string name="status_library_missing">The runtime could not be loaded:\n%1$s</string>
@@ -61,6 +74,13 @@
     <string name="driver_imported">Imported %1$s.</string>
     <string name="driver_bad_zip">That archive does not look like a driver: it has no meta.json naming the library inside it.</string>
     <string name="driver_not_arm64">That driver is not for this phone (arm64 is needed).</string>
+    <string name="download_driver">Download a driver</string>
+    <string name="driver_source_recommended">Recommended for this GPU (Turnip, K11MCH1 / StevenMXZ)</string>
+    <string name="driver_source_purple">MrPurple Turnip (unified, Android 11+)</string>
+    <string name="driver_downloading">Downloading the driver…</string>
+    <string name="driver_none_for_gpu">No downloadable driver for this phone\'s GPU: only Adreno 6xx, 7xx and 8xx have one.</string>
+    <string name="driver_download_failed">The download failed. Check the connection and try again.</string>
+    <string name="driver_downloaded">Downloaded %1$s and set it as the driver.</string>
     <string name="driver_remove">Remove</string>
     <string name="driver_removed">Removed.</string>
     <string name="driver_api">Vulkan %1$s, for Android API %2$d and later</string>
@@ -189,7 +209,7 @@
     <string name="use_this_folder">Use this folder</string>
 
     <!-- settings tabs and sections -->
-    <string name="tab_graphics">GRAPHICS</string>
+    <string name="tab_graphics">GRAPHICS &amp; PERFORMANCE</string>
     <string name="tab_performance">PERFORMANCE</string>
     <string name="tab_controls">CONTROLS &amp; SOUND</string>
     <string name="tab_advanced">ADVANCED</string>
