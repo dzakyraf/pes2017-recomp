@@ -83,18 +83,17 @@ namespace gpu::detail
     void CensusSwap();
     // At each present the title makes.
     void CensusPresent();
-    // PES17_DUMP_TEXTURES: every distinct texture shape bound, once.
-    bool DumpingTextures();
-    void DumpBoundTextures(const RegisterFile& r);
     void ReportCensus();
 #else
     inline void CensusDraw(const RegisterFile&, uint32_t, uint32_t, bool, EdramMode) {}
     inline void CensusSwap() {}
     inline void CensusPresent() {}
-    inline bool DumpingTextures() { return false; }
-    inline void DumpBoundTextures(const RegisterFile&) {}
     inline void ReportCensus() {}
 #endif
+    // PES17_DUMP_TEXTURES: every distinct texture shape bound, once (texture_dump.cpp;
+    // in every build).
+    bool DumpingTextures();
+    void DumpBoundTextures(const RegisterFile& r);
 
     // ---- d3d_hooks.cpp
     // Recordings D3D9 could not have walked to the end of.
