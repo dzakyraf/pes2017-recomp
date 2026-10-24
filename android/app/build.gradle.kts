@@ -60,7 +60,8 @@ android {
         // PES17_VERSION_CODE instead of editing this file.
         // 16: v0.0.2-alpha, over 15 (v0.0.2), and v0.0.1, where the names started
         // again: the code never goes back, or an installed copy would refuse it.
-        versionCode = setting("PES17_VERSION_CODE")?.toIntOrNull() ?: 16
+        // 17: v0.1.0. 18: v0.1.1.
+        versionCode = setting("PES17_VERSION_CODE")?.toIntOrNull() ?: 18
         // Which build this is, carried inside the apk. "The wrong apk" has
         // cost more than one evening, and every time the only way to settle
         // it was to guess. The launcher shows this and Android's app info
