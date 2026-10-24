@@ -1012,21 +1012,40 @@ void vk::renderer::Draw(const gpu::RegisterFile& r, const DrawCall& call)
         const uint32_t size = quadsWide ? 4 : 2;
         const uint32_t expanded = Allocate(quads * 6 * size, kArenaIndices);
         if (expanded == UINT32_MAX) { Skip("frame arena full"); return; }
+        // The indices come from guest memory (big-endian, as WriteIndices reads them), not back
+        // out of the arena, and the list is built here and copied in once: the arena is
+        // write-combined, uncached memory on Mali, where reading it an index at a time and
+        // storing two bytes at a time made the crowd's billboards (quad lists of thousands)
+        // cost the POCO X7 Pro about 12 ms of CPU a frame, 45 fps against 53 without them.
+        const uint8_t* const guestIndices = guest::Base() + call.indexAddress;
         const auto index = [&](uint32_t i) -> uint32_t {
             if (!call.indexed) return i;
-            return quadsWide ? reinterpret_cast<const uint32_t*>(g.arenaMapped + indexOffset)[i]
-                             : reinterpret_cast<const uint16_t*>(g.arenaMapped + indexOffset)[i];
+            if (call.index32)
+            {
+                uint32_t value;
+                std::memcpy(&value, guestIndices + size_t(i) * 4, 4);
+                return __builtin_bswap32(value);
+            }
+            uint16_t value;
+            std::memcpy(&value, guestIndices + size_t(i) * 2, 2);
+            return __builtin_bswap16(value);
         };
+        static thread_local std::vector<uint32_t> wide;
+        static thread_local std::vector<uint16_t> narrow;
+        if (quadsWide) wide.resize(size_t(quads) * 6);
+        else narrow.resize(size_t(quads) * 6);
         for (uint32_t q = 0; q < quads; q++)
         {
             const uint32_t a = index(q * 4), b = index(q * 4 + 1), c = index(q * 4 + 2), d = index(q * 4 + 3);
             const uint32_t six[6] = { a, b, c, a, c, d };
             for (uint32_t k = 0; k < 6; k++)
             {
-                if (quadsWide) reinterpret_cast<uint32_t*>(g.arenaMapped + expanded)[q * 6 + k] = six[k];
-                else reinterpret_cast<uint16_t*>(g.arenaMapped + expanded)[q * 6 + k] = uint16_t(six[k]);
+                if (quadsWide) wide[size_t(q) * 6 + k] = six[k];
+                else narrow[size_t(q) * 6 + k] = uint16_t(six[k]);
             }
         }
+        if (quadsWide) std::memcpy(g.arenaMapped + expanded, wide.data(), wide.size() * 4);
+        else std::memcpy(g.arenaMapped + expanded, narrow.data(), narrow.size() * 2);
         indexOffset = expanded;
     }
 

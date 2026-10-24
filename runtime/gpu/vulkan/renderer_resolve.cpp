@@ -17,6 +17,7 @@
 #include "presenter.h"
 #include "texture_cache.h"
 #include "texture_formats.h"
+#include "../internal.h"
 #include "../texture.h"
 #include "../gpu.h"
 #include "../../log.h"
@@ -1020,6 +1021,16 @@ void vk::renderer::Swap(uint32_t frontBuffer)
                 LOGI("perf: cpu %.2f ms a frame (%.0f%% of a core), crowd %s", (cpu - lastCpu) * 1000.0 / 600.0,
                      (cpu - lastCpu) / took * 100.0, CrowdOff() ? "off" : "on");
                 lastCpu = cpu;
+            }
+            {
+                FenceWaits& waits = gpu::detail::g_fenceWaits;
+                const uint64_t calls = waits.calls.exchange(0), ns = waits.nanoseconds.exchange(0);
+                const uint64_t sleeps = waits.sleeps.exchange(0), slept = waits.sleptNs.exchange(0);
+                const uint64_t yields = waits.yields.exchange(0);
+                LOGI("perf: title fence waits %.1f a frame, %.2f ms a frame; inside them %.1f sleeps"
+                     " (%.3f ms asked each) and %.1f yields a frame",
+                     calls / 600.0, ns / 600.0 / 1e6, sleeps / 600.0, sleeps ? slept / double(sleeps) / 1e6 : 0.0,
+                     yields / 600.0);
             }
             lastFence = fence;
             g.vertexBytesCopied = g.vertexBytesReused = 0;

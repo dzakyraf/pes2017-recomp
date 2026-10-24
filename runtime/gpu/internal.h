@@ -6,12 +6,21 @@
 //   arena.cpp              D3D9's command-buffer arena and its progress reports
 //   census.cpp             what the stream holds, counted, and the dumps
 //   d3d_hooks.cpp          the hooks on the title's D3D9
+#include <atomic>
 #include <cstdint>
 #include "registers.h"
 #include "../diagnostics.h"
 
+// The title's waits for a D3D fence (T_D3D_BlockOnFence, d3d_hooks.cpp): how many, how long,
+// and the sleeps and yields it made inside them. Reported with the renderer's perf line.
+struct FenceWaits
+{
+    std::atomic<uint64_t> calls{ 0 }, nanoseconds{ 0 }, sleeps{ 0 }, sleptNs{ 0 }, yields{ 0 };
+};
+
 namespace gpu::detail
 {
+    inline FenceWaits g_fenceWaits;
     // Registers are plain memory in this address space; the CPU writes some
     // straight through the aperture rather than through the command stream.
     constexpr uint32_t kRegisterAperture = 0x7FC80000u;

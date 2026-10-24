@@ -15,6 +15,11 @@
 
 namespace kernel
 {
+    // What this thread has asked KeDelayExecutionThread for: the sleeps (count, nanoseconds
+    // asked) and the zero-length ones (yields). Read around a guest call to tell what it slept.
+    struct DelayCounts { uint64_t sleeps = 0, sleptNs = 0, yields = 0; };
+    DelayCounts& ThreadDelays();
+
     // The threads blocked in a kernel wait, and on what: for the watchdog.
     void ReportWaits();
 

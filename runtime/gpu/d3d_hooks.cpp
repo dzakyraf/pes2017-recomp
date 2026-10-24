@@ -14,6 +14,7 @@
 #include "../log.h"
 
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 
 namespace
@@ -167,6 +168,16 @@ GUEST_HOOK(T_D3D_BlockOnFence)
             LOGW("d3d: waiting for fence %08X; retired %08X (read at %08X, physical %08X), issued %08X",
                  fence, retired, retiredAt, kernel::ToPhysical(retiredAt), issued);
     }
+    const kernel::DelayCounts before = kernel::ThreadDelays();
+    const auto from = std::chrono::steady_clock::now();
     GUEST_ORIG(T_D3D_BlockOnFence)(ctx, base);
+    const kernel::DelayCounts& after = kernel::ThreadDelays();
+    FenceWaits& waits = gpu::detail::g_fenceWaits;
+    waits.calls.fetch_add(1, std::memory_order_relaxed);
+    waits.nanoseconds.fetch_add(uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                    std::chrono::steady_clock::now() - from).count()), std::memory_order_relaxed);
+    waits.sleeps.fetch_add(after.sleeps - before.sleeps, std::memory_order_relaxed);
+    waits.sleptNs.fetch_add(after.sleptNs - before.sleptNs, std::memory_order_relaxed);
+    waits.yields.fetch_add(after.yields - before.yields, std::memory_order_relaxed);
 }
 #endif

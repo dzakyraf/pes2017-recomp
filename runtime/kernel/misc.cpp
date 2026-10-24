@@ -63,6 +63,12 @@ PPC_FUNC(__imp__KeQuerySystemTime)
     if (out) *out = kernel::SystemTime100ns();
 }
 
+kernel::DelayCounts& kernel::ThreadDelays()
+{
+    static thread_local DelayCounts counts;
+    return counts;
+}
+
 PPC_FUNC(__imp__KeDelayExecutionThread)
 {
     // (processorMode, alertable, intervalPtr) -- 100ns, negative = relative
@@ -81,6 +87,8 @@ PPC_FUNC(__imp__KeDelayExecutionThread)
         else if (v < 0)
         {
             const int64_t ns = -v * 100;
+            kernel::ThreadDelays().sleeps++;
+            kernel::ThreadDelays().sleptNs += uint64_t(ns);
             {
                 // The job scheduler (routine 83A75E38's thread running sub_83A76448):
                 // what it asks to sleep, to compare with the 1065 ms it keeps.
@@ -101,6 +109,7 @@ PPC_FUNC(__imp__KeDelayExecutionThread)
         }
         else
         {
+            kernel::ThreadDelays().yields++;
             kernel::YieldBackoff();
         }
     }
