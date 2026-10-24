@@ -49,6 +49,7 @@ bool vk::pipeline::Failed(int vkResult, const char*) { return vkResult != 0; }
 void vk::pipeline::OnDeviceLost(void (*)(const char*)) {}
 #else
 
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
@@ -127,7 +128,46 @@ namespace
 
 }
 
-namespace { std::atomic<void (*)(const char*)> g_deviceLost{ nullptr }; }
+namespace
+{
+    std::atomic<void (*)(const char*)> g_deviceLost{ nullptr };
+    // VK_EXT_device_fault, where the driver has it: what the GPU was doing when the device
+    // was lost (a faulting address and what kind of access, the vendor's own fault codes).
+    std::atomic<PFN_vkGetDeviceFaultInfoEXT> g_faultInfo{ nullptr };
+    std::atomic<VkDevice> g_faultDevice{ VK_NULL_HANDLE };
+
+    void ReportDeviceFault()
+    {
+        const PFN_vkGetDeviceFaultInfoEXT info = g_faultInfo.load();
+        const VkDevice device = g_faultDevice.load();
+        if (!info || !device) return;
+        VkDeviceFaultCountsEXT counts{ VK_STRUCTURE_TYPE_DEVICE_FAULT_COUNTS_EXT };
+        if (info(device, &counts, nullptr) != VK_SUCCESS && counts.addressInfoCount == 0 &&
+            counts.vendorInfoCount == 0)
+        {
+            LOGE("vulkan: the driver gave no fault report");
+            return;
+        }
+        std::vector<VkDeviceFaultAddressInfoEXT> addresses(counts.addressInfoCount);
+        std::vector<VkDeviceFaultVendorInfoEXT> vendor(counts.vendorInfoCount);
+        VkDeviceFaultInfoEXT fault{ VK_STRUCTURE_TYPE_DEVICE_FAULT_INFO_EXT };
+        fault.pAddressInfos = addresses.empty() ? nullptr : addresses.data();
+        fault.pVendorInfos = vendor.empty() ? nullptr : vendor.data();
+        counts.vendorBinarySize = 0;   // the binary dump is not read
+        const VkResult r = info(device, &counts, &fault);
+        LOGE("vulkan: fault report (%d): %s; %u address(es), %u vendor record(s)", int(r), fault.description,
+             counts.addressInfoCount, counts.vendorInfoCount);
+        static const char* const kinds[] = { "none", "read invalid", "write invalid", "execute invalid",
+                                             "instruction pointer unknown", "instruction pointer invalid",
+                                             "instruction pointer fault" };
+        for (const VkDeviceFaultAddressInfoEXT& a : addresses)
+            LOGE("vulkan:   %s at %016llX (precision %llu)", a.addressType < 7 ? kinds[a.addressType] : "?",
+                 (unsigned long long)a.reportedAddress, (unsigned long long)a.addressPrecision);
+        for (const VkDeviceFaultVendorInfoEXT& v : vendor)
+            LOGE("vulkan:   vendor: %s (code %llX, data %llX)", v.description,
+                 (unsigned long long)v.vendorFaultCode, (unsigned long long)v.vendorFaultData);
+    }
+}
 
 void vk::pipeline::OnDeviceLost(void (*handler)(const char*)) { g_deviceLost = handler; }
 
@@ -143,6 +183,7 @@ bool vk::pipeline::Failed(int vkResult, const char* where)
                  " run (after a GPU page fault or a hang; `journalctl -k | grep amdgpu` has"
                  " the fault), and nothing submitted from here on will finish. Ending the run.",
                  where);
+            ReportDeviceFault();
             if (auto handler = g_deviceLost.load()) handler("the Vulkan device was lost");
         }
     }
@@ -176,6 +217,56 @@ bool vk::pipeline::CreateDevice(void* physicalDevice, uint32_t family,
     queue.queueFamilyIndex = family;
     queue.queueCount = 1;
     queue.pQueuePriorities = &priority;
+
+    // PES17_QUEUE_PRIORITY=low|medium|high|realtime: the queue's priority against other
+    // processes' GPU work (the compositor's, a screen recorder's), where the driver offers
+    // VK_KHR/EXT_global_priority and lists that level for the family. Unset asks for nothing.
+    VkDeviceQueueGlobalPriorityCreateInfoKHR globalPriority{
+        VK_STRUCTURE_TYPE_DEVICE_QUEUE_GLOBAL_PRIORITY_CREATE_INFO_KHR };
+    const char* priorityExtension = nullptr;
+    {
+        const char* wanted = env::Text("PES17_QUEUE_PRIORITY");
+        VkQueueGlobalPriorityKHR level = VkQueueGlobalPriorityKHR(0);
+        if (wanted)
+        {
+            if (std::strcmp(wanted, "low") == 0) level = VK_QUEUE_GLOBAL_PRIORITY_LOW_KHR;
+            else if (std::strcmp(wanted, "medium") == 0) level = VK_QUEUE_GLOBAL_PRIORITY_MEDIUM_KHR;
+            else if (std::strcmp(wanted, "high") == 0) level = VK_QUEUE_GLOBAL_PRIORITY_HIGH_KHR;
+            else if (std::strcmp(wanted, "realtime") == 0) level = VK_QUEUE_GLOBAL_PRIORITY_REALTIME_KHR;
+        }
+        if (level && DeviceHasExtension(physical, VK_KHR_GLOBAL_PRIORITY_EXTENSION_NAME))
+            priorityExtension = VK_KHR_GLOBAL_PRIORITY_EXTENSION_NAME;
+        else if (level && DeviceHasExtension(physical, VK_EXT_GLOBAL_PRIORITY_EXTENSION_NAME))
+            priorityExtension = VK_EXT_GLOBAL_PRIORITY_EXTENSION_NAME;
+        if (priorityExtension)
+        {
+            // The levels the family lists (VK_KHR_global_priority's query); a driver without
+            // the query is asked anyway and may refuse with VK_ERROR_NOT_PERMITTED.
+            uint32_t families = 0;
+            vkGetPhysicalDeviceQueueFamilyProperties2(physical, &families, nullptr);
+            std::vector<VkQueueFamilyGlobalPriorityPropertiesKHR> levels(
+                families, { VK_STRUCTURE_TYPE_QUEUE_FAMILY_GLOBAL_PRIORITY_PROPERTIES_KHR });
+            std::vector<VkQueueFamilyProperties2> properties(families, { VK_STRUCTURE_TYPE_QUEUE_FAMILY_PROPERTIES_2 });
+            for (uint32_t i = 0; i < families; i++) properties[i].pNext = &levels[i];
+            vkGetPhysicalDeviceQueueFamilyProperties2(physical, &families, properties.data());
+            std::string listed;
+            bool offered = family >= families || levels[family].priorityCount == 0;
+            if (family < families)
+                for (uint32_t i = 0; i < levels[family].priorityCount; i++)
+                {
+                    listed += " " + std::to_string(int(levels[family].priorities[i]));
+                    if (levels[family].priorities[i] == level) offered = true;
+                }
+            LOGI("vulkan: queue priorities listed:%s; asking for %d (%s)", listed.empty() ? " none" : listed.c_str(),
+                 int(level), offered ? "listed" : "not listed, not asked");
+            if (offered)
+            {
+                globalPriority.globalPriority = level;
+                queue.pNext = &globalPriority;
+            }
+            else priorityExtension = nullptr;
+        }
+    }
 
     VkPhysicalDeviceFeatures supported{};
     vkGetPhysicalDeviceFeatures(physical, &supported);
@@ -429,6 +520,23 @@ bool vk::pipeline::CreateDevice(void* physicalDevice, uint32_t family,
         chain = &dynamicRendering;
     }
 
+    VkPhysicalDeviceFaultFeaturesEXT fault{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT };
+    if (DeviceHasExtension(physical, VK_EXT_DEVICE_FAULT_EXTENSION_NAME))
+    {
+        VkPhysicalDeviceFeatures2 query{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+        query.pNext = &fault;
+        vkGetPhysicalDeviceFeatures2(physical, &query);
+        fault.pNext = nullptr;
+        fault.deviceFaultVendorBinary = VK_FALSE;
+        if (fault.deviceFault)
+        {
+            extensions.push_back(VK_EXT_DEVICE_FAULT_EXTENSION_NAME);
+            fault.pNext = chain;
+            chain = &fault;
+        }
+    }
+    if (priorityExtension) extensions.push_back(priorityExtension);
+
     VkDeviceCreateInfo info{ VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
     info.pNext = chain;
     if (g.nonSeamlessCubes) { nonSeamless.pNext = chain; info.pNext = &nonSeamless; }
@@ -438,13 +546,31 @@ bool vk::pipeline::CreateDevice(void* physicalDevice, uint32_t family,
     info.ppEnabledExtensionNames = extensions.data();
     info.pEnabledFeatures = &enabled;
     VkDevice device = VK_NULL_HANDLE;
-    const VkResult r = vkCreateDevice(physical, &info, nullptr, &device);
+    VkResult r = vkCreateDevice(physical, &info, nullptr, &device);
+    if ((r == VK_ERROR_NOT_PERMITTED_KHR || r == VK_ERROR_INITIALIZATION_FAILED) && queue.pNext)
+    {
+        // The priority was refused (Android lets an app have some levels and not others).
+        LOGW("vulkan: queue priority %d refused (%s); the default instead",
+             int(globalPriority.globalPriority), Explain(r));
+        queue.pNext = nullptr;
+        extensions.erase(std::remove(extensions.begin(), extensions.end(), priorityExtension), extensions.end());
+        info.enabledExtensionCount = uint32_t(extensions.size());
+        info.ppEnabledExtensionNames = extensions.data();
+        r = vkCreateDevice(physical, &info, nullptr, &device);
+    }
     if (r != VK_SUCCESS) { LOGW("vulkan: no device (%s)", Explain(r)); return false; }
+    if (queue.pNext) LOGI("vulkan: the queue runs at global priority %d", int(globalPriority.globalPriority));
 #if defined(PES17_VULKAN_DYNAMIC)
     // From here on the device's entry points come from the driver itself
     // rather than through the loader's dispatch (loader.h).
     vk::loader::LoadDevice(device);
 #endif
+    if (fault.deviceFault)
+    {
+        g_faultInfo = reinterpret_cast<PFN_vkGetDeviceFaultInfoEXT>(vkGetDeviceProcAddr(device, "vkGetDeviceFaultInfoEXT"));
+        g_faultDevice = device;
+        LOGI("vulkan: device fault reports %s", g_faultInfo.load() ? "on" : "unavailable");
+    }
     VkQueue made = VK_NULL_HANDLE;
     vkGetDeviceQueue(device, family, 0, &made);
     *deviceOut = device;
