@@ -16,6 +16,9 @@
 #include "../../log.h"
 #include "../../platform.h"
 #include "../../report.h"
+#ifdef PES17_ANDROID
+#include "../../android/android.h"
+#endif
 
 #include <atomic>
 #include <thread>
@@ -72,6 +75,9 @@ namespace
     {
         crash::RegisterThread("recorder");
         platform::SetThreadAffinity(platform::ThreadAffinityRole::PerformanceCore);
+#ifdef PES17_ANDROID
+        android::perf::AddHintThread(true);
+#endif
         uint8_t* const ring = q.ring;
         uint64_t at = q.made.load(std::memory_order_relaxed);
         uint64_t calls = 0;

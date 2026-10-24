@@ -1211,6 +1211,9 @@ namespace
     {
         crash::RegisterThread("vulkan presenter");
         platform::SetThreadAffinity(platform::ThreadAffinityRole::RenderCore);
+#ifdef PES17_ANDROID
+        android::perf::AddHintThread(true);
+#endif
         if (!Bring())
         {
             LOGW("vulkan: presenting disabled, continuing headless");

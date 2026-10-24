@@ -130,14 +130,17 @@ namespace
         using Create = void* (*)(void*, const int32_t*, size_t, int64_t);
         using Report = int (*)(void*, int64_t);
         using Close = void (*)(void*);
+        using SetThreads = int (*)(void*, const int32_t*, size_t);
 
         std::mutex lock;
         std::once_flag once;
         bool usable = false;
+        bool renderThreads = true;
         GetManager getManager = nullptr;
         Create create = nullptr;
         Report report = nullptr;
         Close close = nullptr;
+        SetThreads setThreads = nullptr;
         void* manager = nullptr;
         void* session = nullptr;
         std::vector<int32_t> threads;
@@ -153,6 +156,10 @@ namespace
         g_hint.create = reinterpret_cast<Hint::Create>(dlsym(library, "APerformanceHint_createSession"));
         g_hint.report = reinterpret_cast<Hint::Report>(dlsym(library, "APerformanceHint_reportActualWorkDuration"));
         g_hint.close = reinterpret_cast<Hint::Close>(dlsym(library, "APerformanceHint_closeSession"));
+        g_hint.setThreads = reinterpret_cast<Hint::SetThreads>(dlsym(library, "APerformanceHint_setThreads"));
+        // PES17_HINT_THREADS=0 keeps the session to the guest's main thread and the frame
+        // thread, as before the ring consumer, presenter and recorder were added to it.
+        if (const char* off = std::getenv("PES17_HINT_THREADS"); off && off[0] == '0') g_hint.renderThreads = false;
         if (!g_hint.getManager || !g_hint.create || !g_hint.report) return;
         g_hint.manager = g_hint.getManager();
         if (!g_hint.manager) return;
@@ -161,24 +168,38 @@ namespace
         g_hint.usable = true;
     }
 
-    // A session cannot take threads after it is made, so each new one makes it over.
-    // Called with the lock held. A system that refuses the first (a Samsung on Android 13
-    // did, with the main thread's id) is not asked again.
+    // Android 14 changes a session's threads in place (setThreads), which keeps what the
+    // system has learnt of it; before that each new thread makes the session over. Called
+    // with the lock held. A system that refuses the first session (a Samsung on Android 13
+    // did, with the main thread's id) is not asked again; one that refuses a larger set
+    // keeps the session it had, without the new thread.
     void RebuildHintSession()
     {
-        if (g_hint.session && g_hint.close) g_hint.close(g_hint.session);
-        g_hint.session = g_hint.create(g_hint.manager, g_hint.threads.data(), g_hint.threads.size(),
-                                       g_hint.targetNanoseconds);
+        if (g_hint.session && g_hint.setThreads &&
+            g_hint.setThreads(g_hint.session, g_hint.threads.data(), g_hint.threads.size()) == 0)
+        {
+            LOGI("perf: performance hint session now has %zu threads", g_hint.threads.size());
+            return;
+        }
+        void* const made = g_hint.create(g_hint.manager, g_hint.threads.data(), g_hint.threads.size(),
+                                         g_hint.targetNanoseconds);
         LOGI("perf: performance hint session %s for %zu threads, %.1f ms a frame",
-             g_hint.session ? "made" : "refused", g_hint.threads.size(), double(g_hint.targetNanoseconds) / 1e6);
-        if (!g_hint.session) g_hint.usable = false;
+             made ? "made" : "refused", g_hint.threads.size(), double(g_hint.targetNanoseconds) / 1e6);
+        if (!made)
+        {
+            if (g_hint.session) g_hint.threads.pop_back();
+            else g_hint.usable = false;
+            return;
+        }
+        if (g_hint.session && g_hint.close) g_hint.close(g_hint.session);
+        g_hint.session = made;
     }
 }
 
-void android::perf::AddHintThread()
+void android::perf::AddHintThread(bool render)
 {
     std::call_once(g_hint.once, LoadHint);
-    if (!g_hint.usable) return;
+    if (!g_hint.usable || (render && !g_hint.renderThreads)) return;
     const int32_t tid = int32_t(syscall(SYS_gettid));
     std::lock_guard lock(g_hint.lock);
     if (std::find(g_hint.threads.begin(), g_hint.threads.end(), tid) != g_hint.threads.end()) return;
@@ -193,6 +214,9 @@ void android::perf::ReportFrameWork(int64_t actualNanoseconds)
     // The thread that finishes frames is the other one that must not be late.
     static thread_local bool joined = false;
     if (!joined) { joined = true; AddHintThread(); }
+    // A loading stall is not a frame: past four targets it is reported as four, so one
+    // long wait does not pull the system's estimate of the work far off.
+    actualNanoseconds = std::min(actualNanoseconds, g_hint.targetNanoseconds * 4);
     std::lock_guard lock(g_hint.lock);
     if (g_hint.session) g_hint.report(g_hint.session, actualNanoseconds);
 }

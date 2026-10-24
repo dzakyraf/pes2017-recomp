@@ -205,7 +205,9 @@ namespace android::perf
     // target, and each finished frame reports how long it took. A phone that is missing frames
     // is given more CPU and GPU clock for them, one that is not is let off it. PES17_HINT=0
     // turns it off.
-    void AddHintThread();                        // the calling thread joins the session
+    // The calling thread joins the session. `render` marks the renderer's own threads (ring
+    // consumer, presenter, recorder), which PES17_HINT_THREADS=0 leaves out for an A/B.
+    void AddHintThread(bool render = false);
     void ReportFrameWork(int64_t actualNanoseconds);
     // How much RAM the device has, in MB, and how much is free right now.
     uint32_t TotalMemoryMB();

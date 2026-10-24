@@ -19,6 +19,9 @@
 #include "vulkan/presenter.h"
 #include "vulkan/renderer.h"
 #include "vulkan/texture_cache.h"
+#ifdef PES17_ANDROID
+#include "../android/android.h"
+#endif
 
 #include <atomic>
 #include <chrono>
@@ -110,6 +113,9 @@ namespace
     {
         crash::RegisterThread("gpu ring consumer");
         platform::SetThreadAffinity(platform::ThreadAffinityRole::RenderCore);
+#ifdef PES17_ANDROID
+        android::perf::AddHintThread(true);
+#endif
         t_guestPcr = g.gpuPcr;
         LOGI("gpu: ring consumer started");
         g.consumerStarted = std::chrono::steady_clock::now();
