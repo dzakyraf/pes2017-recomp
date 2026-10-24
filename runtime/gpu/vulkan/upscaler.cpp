@@ -375,20 +375,27 @@ namespace
 
 bool vk::upscale::Enabled()
 {
+    // Off unless asked for, as in the header: the Settings switch sends PES17_UPSCALER=fsr when it is
+    // on and leaves it unset when it is off (nativeSetOption unsets an empty value), so unset is off.
     static const bool wanted = [] {
         const char* mode = std::getenv("PES17_UPSCALER");
-        return !mode || std::strcmp(mode, "bilinear") != 0;
+        return mode && std::strcmp(mode, "fsr") == 0;
     }();
-    if (!wanted || (g.tried && !g.ready)) return false;
+    if (g.tried && !g.ready) return false;
 #ifdef PES17_ANDROID
-    // `touch files/upscaler_off` compares the old blit live; looked at twice a second.
+    // `files/upscaler_on` / `files/upscaler_off`: live, looked at twice a second.
     static std::atomic<uint32_t> asked{ 0 };
-    static std::atomic<bool> off{ false };
+    static std::atomic<bool> on{ false }, off{ false };
     if (asked++ % 30 == 0)
+    {
+        on = access((android::GetPaths().external + "/upscaler_on").c_str(), F_OK) == 0;
         off = access((android::GetPaths().external + "/upscaler_off").c_str(), F_OK) == 0;
+    }
     if (off) return false;
+    return wanted || on;
+#else
+    return wanted;
 #endif
-    return true;
 }
 
 VkImage vk::upscale::Record(VkDevice device, VkPhysicalDevice physical, VkCommandBuffer commands, uint32_t slot,
