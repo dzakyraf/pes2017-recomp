@@ -297,6 +297,11 @@ void platform::SetThreadAffinity(ThreadAffinityRole role)
     if (std::strcmp(s_pinning, "off") == 0 || std::strcmp(s_pinning, "0") == 0) return;
     const bool shared = std::strcmp(s_pinning, "shared") == 0;
     const bool wide = std::strcmp(s_pinning, "split") == 0 || std::strcmp(s_pinning, "wide") == 0;
+    // "big": the guest's threads and the ring consumer/presenter share the performance
+    // cores with the prime one. On the POCO X7 Pro at a 60 limit the three performance
+    // cores ran ~80% busy and the ring consumer waited in their run queue longer than it
+    // ran, while the prime core, the main thread's, sat ~55% idle.
+    const bool big = std::strcmp(s_pinning, "big") == 0;
 
     uint32_t targetMask = 0;
     switch (role)
@@ -307,6 +312,7 @@ void platform::SetThreadAffinity(ThreadAffinityRole role)
     case ThreadAffinityRole::PerformanceCore:
         targetMask = s_topo.perfMask ? s_topo.perfMask : s_topo.primeMask;
         if (wide && s_topo.workerMask != s_topo.perfMask) targetMask |= s_topo.workerMask;
+        if (big) targetMask |= s_topo.primeMask;
         break;
     case ThreadAffinityRole::WorkerCore:
         targetMask = s_topo.workerMask ? s_topo.workerMask : s_topo.perfMask;
@@ -316,8 +322,9 @@ void platform::SetThreadAffinity(ThreadAffinityRole role)
         // cluster cost the match its steady 60 fps (43-53 with a wide spread), so there
         // they inherit the main thread's mask as before. PES17_PINNING=render forces it.
         if (shared) return;
-        if (std::strcmp(s_pinning, "render") != 0 && !IsMaliDevice()) return;
+        if (std::strcmp(s_pinning, "render") != 0 && !big && !IsMaliDevice()) return;
         targetMask = s_topo.perfMask ? s_topo.perfMask : s_topo.primeMask;
+        if (big) targetMask |= s_topo.primeMask;
         break;
     default:
         return;

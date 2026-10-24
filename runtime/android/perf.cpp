@@ -131,6 +131,17 @@ namespace
         using Report = int (*)(void*, int64_t);
         using Close = void (*)(void*);
         using SetThreads = int (*)(void*, const int32_t*, size_t);
+        // Android 16 (API 36): a session made from a config can say it times a graphics
+        // pipeline's critical path, which the system may boost harder than a plain one.
+        // These are the signatures Android 16 shipped (android16-release); AOSP main has
+        // since made the setters return int and createSessionUsingConfig return the session.
+        using ConfigCreate = void* (*)();
+        using ConfigRelease = void (*)(void*);
+        using ConfigSetTids = void (*)(void*, const int32_t*, size_t);
+        using ConfigSetTarget = void (*)(void*, int64_t);
+        using ConfigSetPipeline = void (*)(void*, bool);
+        using CreateFromConfig = int (*)(void*, void*, void**);
+        using MaxPipelineThreads = int (*)(void*);
 
         std::mutex lock;
         std::once_flag once;
@@ -141,6 +152,13 @@ namespace
         Report report = nullptr;
         Close close = nullptr;
         SetThreads setThreads = nullptr;
+        ConfigCreate configCreate = nullptr;
+        ConfigRelease configRelease = nullptr;
+        ConfigSetTids configSetTids = nullptr;
+        ConfigSetTarget configSetTarget = nullptr;
+        ConfigSetPipeline configSetPipeline = nullptr;
+        CreateFromConfig createFromConfig = nullptr;
+        size_t pipelineLimit = 0;   // 0: not a graphics pipeline session
         void* manager = nullptr;
         void* session = nullptr;
         std::vector<int32_t> threads;
@@ -163,6 +181,28 @@ namespace
         if (!g_hint.getManager || !g_hint.create || !g_hint.report) return;
         g_hint.manager = g_hint.getManager();
         if (!g_hint.manager) return;
+        // Where the system has the API (Android 16) the session is a graphics pipeline one,
+        // with as many threads as it allows such a session. On the POCO X7 Pro (Dimensity
+        // 8400, 60 fps limit) it won three interleaved pairs of match runs, mean fps 55.5 /
+        // 58.2 / 56.4 against 54.0 / 52.8 / 52.2. PES17_HINT_PIPELINE=0 makes a plain session.
+        if (const char* off = std::getenv("PES17_HINT_PIPELINE"); !off || off[0] != '0')
+        {
+            g_hint.configCreate = reinterpret_cast<Hint::ConfigCreate>(dlsym(library, "ASessionCreationConfig_create"));
+            g_hint.configRelease = reinterpret_cast<Hint::ConfigRelease>(dlsym(library, "ASessionCreationConfig_release"));
+            g_hint.configSetTids = reinterpret_cast<Hint::ConfigSetTids>(dlsym(library, "ASessionCreationConfig_setTids"));
+            g_hint.configSetTarget = reinterpret_cast<Hint::ConfigSetTarget>(dlsym(library, "ASessionCreationConfig_setTargetWorkDurationNanos"));
+            g_hint.configSetPipeline = reinterpret_cast<Hint::ConfigSetPipeline>(dlsym(library, "ASessionCreationConfig_setGraphicsPipeline"));
+            g_hint.createFromConfig = reinterpret_cast<Hint::CreateFromConfig>(dlsym(library, "APerformanceHint_createSessionUsingConfig"));
+            const auto maxThreads = reinterpret_cast<Hint::MaxPipelineThreads>(dlsym(library, "APerformanceHint_getMaxGraphicsPipelineThreadsCount"));
+            if (g_hint.configCreate && g_hint.configRelease && g_hint.configSetTids && g_hint.configSetTarget &&
+                g_hint.configSetPipeline && g_hint.createFromConfig && maxThreads)
+            {
+                const int limit = maxThreads(g_hint.manager);
+                g_hint.pipelineLimit = limit > 0 ? size_t(limit) : 0;
+            }
+            LOGI("perf: graphics pipeline hint sessions %s (up to %zu threads)",
+                 g_hint.pipelineLimit ? "available" : "not available", g_hint.pipelineLimit);
+        }
         const uint32_t limit = frame_rate::Limit();
         g_hint.targetNanoseconds = int64_t(1'000'000'000.0 / double(limit ? std::min(limit, 240u) : 60u));
         g_hint.usable = true;
@@ -173,18 +213,41 @@ namespace
     // with the lock held. A system that refuses the first session (a Samsung on Android 13
     // did, with the main thread's id) is not asked again; one that refuses a larger set
     // keeps the session it had, without the new thread.
+    void* CreatePipelineSession()
+    {
+        void* const config = g_hint.configCreate();
+        if (!config) return nullptr;
+        void* made = nullptr;
+        g_hint.configSetTids(config, g_hint.threads.data(), g_hint.threads.size());
+        g_hint.configSetTarget(config, g_hint.targetNanoseconds);
+        g_hint.configSetPipeline(config, true);
+        const int result = g_hint.createFromConfig(g_hint.manager, config, &made);
+        if (result != 0) { made = nullptr; LOGW("perf: no graphics pipeline session (error %d)", result); }
+        g_hint.configRelease(config);
+        return made;
+    }
+
     void RebuildHintSession()
     {
+        if (g_hint.pipelineLimit && g_hint.threads.size() > g_hint.pipelineLimit)
+        {
+            g_hint.threads.pop_back();   // a pipeline session has a thread limit
+            return;
+        }
         if (g_hint.session && g_hint.setThreads &&
             g_hint.setThreads(g_hint.session, g_hint.threads.data(), g_hint.threads.size()) == 0)
         {
             LOGI("perf: performance hint session now has %zu threads", g_hint.threads.size());
             return;
         }
-        void* const made = g_hint.create(g_hint.manager, g_hint.threads.data(), g_hint.threads.size(),
-                                         g_hint.targetNanoseconds);
-        LOGI("perf: performance hint session %s for %zu threads, %.1f ms a frame",
-             made ? "made" : "refused", g_hint.threads.size(), double(g_hint.targetNanoseconds) / 1e6);
+        void* made = g_hint.pipelineLimit ? CreatePipelineSession() : nullptr;
+        const bool pipeline = made != nullptr;
+        if (!made)
+            made = g_hint.create(g_hint.manager, g_hint.threads.data(), g_hint.threads.size(),
+                                 g_hint.targetNanoseconds);
+        LOGI("perf: performance hint session %s for %zu threads, %.1f ms a frame%s",
+             made ? "made" : "refused", g_hint.threads.size(), double(g_hint.targetNanoseconds) / 1e6,
+             pipeline ? " (graphics pipeline)" : "");
         if (!made)
         {
             if (g_hint.session) g_hint.threads.pop_back();
