@@ -219,8 +219,21 @@ namespace vk::renderer::detail
         if (vkCreateBuffer(g.device, &info, nullptr, &out.buffer) != VK_SUCCESS) return false;
         VkMemoryRequirements needs{};
         vkGetBufferMemoryRequirements(g.device, out.buffer, &needs);
-        const uint32_t type = FindMemory(needs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                                               VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        // Cached if the device has it: the CPU reads every byte back. Uncached memory (what
+        // HOST_COHERENT alone gives on Mali) made the copy into guest memory 63% of the ring
+        // consumer's time in the match intro on the POCO X7 Pro, where the title composes the
+        // players' textures one by one and waits for each to land.
+        constexpr VkMemoryPropertyFlags visible = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+        constexpr VkMemoryPropertyFlags cached = VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+        constexpr VkMemoryPropertyFlags coherent = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        uint32_t type = FindMemory(needs.memoryTypeBits, visible | cached | coherent);
+        static bool told = false;
+        if (!told)
+        {
+            told = true;
+            LOGI("resolve: write-backs read through %s memory", type == UINT32_MAX ? "uncached" : "cached");
+        }
+        if (type == UINT32_MAX) type = FindMemory(needs.memoryTypeBits, visible | coherent);
         VkMemoryAllocateInfo allocate{ VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
         allocate.allocationSize = needs.size;
         allocate.memoryTypeIndex = type;
@@ -251,7 +264,13 @@ namespace vk::renderer::detail
     // swap the destination asks for and 8-in-32 endian.
     void ApplyWriteBack(const PendingWriteBack& p, double waitedMs)
     {
-        const uint8_t* const pixels = p.staging.mapped;
+        // The image out of the mapped buffer in one go: a pixel at a time, four byte loads
+        // each, is slow from memory the CPU does not cache.
+        static thread_local std::vector<uint8_t> local;
+        const size_t imageBytes = size_t(p.imageWidth) * p.imageHeight * 4;
+        local.resize(imageBytes);
+        std::memcpy(local.data(), p.staging.mapped, imageBytes);
+        const uint8_t* const pixels = local.data();
         uint8_t* const base = guest::Base() + p.va;
         for (uint32_t y = p.destY; y < p.destY + p.height && y < p.imageHeight; y++)
             for (uint32_t x = p.destX; x < p.destX + p.width && x < p.imageWidth; x++)
