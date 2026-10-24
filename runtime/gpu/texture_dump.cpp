@@ -149,7 +149,10 @@ void gpu::detail::DumpBoundTextures(const RegisterFile& r)
                              | (uint64_t(fetch.Width() & 0x1FFF) << 22)
                              | (uint64_t(fetch.Height() & 0x1FFF) << 9)
                              | uint64_t(fetch.MaxMipLevel() & 0xF);
-        if (dumped.insert(shape).second) DumpTexture(fetch);
+        // Keyed on the address too: the pitch's markings and a kit share a shape,
+        // and only the first of them would be written.
+        if (dumped.insert(shape ^ (uint64_t(fetch.BaseAddress()) * 0x9E3779B97F4A7C15ull)).second)
+            DumpTexture(fetch);
     }
 }
 
