@@ -898,6 +898,11 @@ namespace vk::renderer::detail
     // NoteSwapSource is told, just before the frame is finished, the ring slot the swap presents, how many
     // frames ago that slot was last resolved (-1: never) and the present image used.
     void NoteSwapSource(uint32_t ringSlot, int64_t age, uint32_t presentSlot);
+    // While the probe is on, copies `image` (in `layout`, left in it) of width x height texels to a host
+    // buffer for the probe: which = 0 the frame the swap presents (before the blit), 1 the present image
+    // after the blit and before the colour table. Recorded into the frame's command stream.
+    void ProbeCopy(VkImage image, VkImageLayout layout, uint32_t width, uint32_t height, uint32_t which);
+    bool BlackProbeEnabled();
     FrameReadBacks PlanReadBacks();
     // Copies the finished frame out, inside its own command buffer.
     void RecordReadBack(VkImage present);

@@ -611,6 +611,8 @@ namespace vk::renderer::detail
             uint64_t blackByPresent[kPresentImages]{};
             uint64_t blackByAge[4]{}, framesByAge[4]{};   // age -1 (never), 0, 1, 2 or more
             uint64_t blackByMod3[3]{};
+            uint64_t blackBySlot[kFrameSlots]{}, framesBySlot[kFrameSlots]{};
+            uint64_t blackStage[2][3]{};   // [stage][never copied / had content / black], black frames only
         } g_probe;
 
         bool BlackProbeOn()
@@ -635,6 +637,99 @@ namespace vk::renderer::detail
         g_probe.ringSlot = ringSlot; g_probe.age = age; g_probe.presentSlot = presentSlot;
     }
 
+    bool BlackProbeEnabled() { return BlackProbeOn(); }
+
+    namespace
+    {
+        struct ProbeBuffer
+        {
+            VkBuffer buffer = VK_NULL_HANDLE;
+            VkDeviceMemory memory = VK_NULL_HANDLE;
+            const uint8_t* mapped = nullptr;
+            VkDeviceSize size = 0, used = 0;
+        } g_probeBuffers[2];
+        // Whether the stage was copied this frame, and was black, for the log line of a black frame.
+        int g_probeStage[2] = { -1, -1 };   // -1 not copied, 0 had content, 1 black
+
+        bool EnsureProbeBuffer(ProbeBuffer& b, VkDeviceSize bytes)
+        {
+            if (b.buffer && b.size >= bytes) return true;
+            if (b.buffer)
+            {
+                vkDeviceWaitIdle(g.device);
+                vkUnmapMemory(g.device, b.memory);
+                vkDestroyBuffer(g.device, b.buffer, nullptr);
+                vkFreeMemory(g.device, b.memory, nullptr);
+                b = ProbeBuffer{};
+            }
+            VkBufferCreateInfo info{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+            info.size = bytes;
+            info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+            if (vkCreateBuffer(g.device, &info, nullptr, &b.buffer) != VK_SUCCESS) return false;
+            VkMemoryRequirements needs{};
+            vkGetBufferMemoryRequirements(g.device, b.buffer, &needs);
+            const VkMemoryPropertyFlags visible = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+            uint32_t type = FindMemory(needs.memoryTypeBits, visible | VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
+            if (type == UINT32_MAX) type = FindMemory(needs.memoryTypeBits, visible);
+            VkMemoryAllocateInfo allocate{ VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+            allocate.allocationSize = needs.size;
+            allocate.memoryTypeIndex = type;
+            void* mapped = nullptr;
+            if (type == UINT32_MAX || vkAllocateMemory(g.device, &allocate, nullptr, &b.memory) != VK_SUCCESS ||
+                vkBindBufferMemory(g.device, b.buffer, b.memory, 0) != VK_SUCCESS ||
+                vkMapMemory(g.device, b.memory, 0, bytes, 0, &mapped) != VK_SUCCESS)
+            {
+                vkDestroyBuffer(g.device, b.buffer, nullptr);
+                b = ProbeBuffer{};
+                return false;
+            }
+            b.size = bytes;
+            b.mapped = static_cast<const uint8_t*>(mapped);
+            return true;
+        }
+
+        bool LooksBlack(const uint8_t* texels, size_t bytes)
+        {
+            for (size_t i = 0; i + 3 < bytes; i += 211 * 4)
+                if (texels[i] > 6 || texels[i + 1] > 6 || texels[i + 2] > 6) return false;
+            return true;
+        }
+    }
+
+    void ProbeCopy(VkImage image, VkImageLayout layout, uint32_t width, uint32_t height, uint32_t which)
+    {
+        if (which > 1 || !width || !height) return;
+        ProbeBuffer& b = g_probeBuffers[which];
+        const VkDeviceSize bytes = VkDeviceSize(width) * height * 4;
+        if (!EnsureProbeBuffer(b, bytes)) return;
+        b.used = bytes;
+        g_probeStage[which] = -2;   // copied, not looked at yet
+        VkBufferImageCopy region{};
+        region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+        region.imageExtent = { width, height, 1 };
+        const VkBuffer buffer = b.buffer;
+        const bool move = layout != VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        const VkAccessFlags writes = layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL ? VK_ACCESS_TRANSFER_WRITE_BIT : VK_ACCESS_SHADER_READ_BIT;
+        const VkPipelineStageFlags stages = layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL ? VK_PIPELINE_STAGE_TRANSFER_BIT : VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        if (move)
+            RecordBarrier(image, VK_IMAGE_ASPECT_COLOR_BIT, layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                          writes, VK_ACCESS_TRANSFER_READ_BIT, stages, VK_PIPELINE_STAGE_TRANSFER_BIT);
+        Record([=](VkCommandBuffer command) {
+            vkCmdCopyImageToBuffer(command, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer, 1, &region);
+            VkBufferMemoryBarrier toHost{ VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+            toHost.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            toHost.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+            toHost.srcQueueFamilyIndex = toHost.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            toHost.buffer = buffer;
+            toHost.size = VK_WHOLE_SIZE;
+            vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 0, nullptr, 1,
+                                 &toHost, 0, nullptr);
+        });
+        if (move)
+            RecordBarrier(image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, layout,
+                          0, writes, VK_PIPELINE_STAGE_TRANSFER_BIT, stages);
+    }
+
     // `frame` is the finished present image, RGBA. Black when a spread of samples has nothing above 6.
     void CountBlackFrame(const std::vector<uint8_t>& frame)
     {
@@ -642,8 +737,20 @@ namespace vk::renderer::detail
         const size_t pixels = frame.size() / 4;
         for (size_t i = 0; i < pixels && black; i += 211)
             if (frame[i * 4] > 6 || frame[i * 4 + 1] > 6 || frame[i * 4 + 2] > 6) black = false;
+        for (int i = 0; i < 2; i++)
+        {
+            if (g_probeStage[i] == -2)
+                g_probeStage[i] = LooksBlack(g_probeBuffers[i].mapped, size_t(g_probeBuffers[i].used)) ? 1 : 0;
+        }
         BlackProbe& p = g_probe;
+        static uint64_t lastDraws = 0, lastResolves = 0;
+        const uint64_t drawsThisFrame = g.drawsRecorded - lastDraws, resolvesThisFrame = g.resolves - lastResolves;
+        lastDraws = g.drawsRecorded; lastResolves = g.resolves;
         p.frames++;
+        if (black) p.blackBySlot[g.slot % kFrameSlots]++;
+        p.framesBySlot[g.slot % kFrameSlots]++;
+        if (black) { p.blackStage[0][g_probeStage[0] + 1 > 0 ? g_probeStage[0] + 1 : 0]++; p.blackStage[1][g_probeStage[1] + 1 > 0 ? g_probeStage[1] + 1 : 0]++; }
+        g_probeStage[0] = g_probeStage[1] = -1;
         p.framesByRing[p.ringSlot % kFrameSlots]++;
         p.framesByAge[AgeBucket(p.age)]++;
         if (black)
@@ -655,14 +762,19 @@ namespace vk::renderer::detail
             p.blackByMod3[g.frames % 3]++;
             if (p.loggedBlack++ < 60)
                 LOGW("probe: black frame %llu (swap %llu): resolve ring slot %u, source last resolved %lld frames ago,"
-                     " present image %u, frame mod 3 = %llu", (unsigned long long)p.black,
-                     (unsigned long long)g.frames, p.ringSlot, (long long)p.age, p.presentSlot,
-                     (unsigned long long)(g.frames % 3));
+                     " present image %u, frame mod 3 = %llu, command slot %u, %llu draws and %llu resolves this frame;"
+                     " source %s, after the blit %s, final black",
+                     (unsigned long long)p.black, (unsigned long long)g.frames, p.ringSlot, (long long)p.age,
+                     p.presentSlot, (unsigned long long)(g.frames % 3), g.slot,
+                     (unsigned long long)drawsThisFrame, (unsigned long long)resolvesThisFrame,
+                     g_probeStage[0] < 0 ? "?" : g_probeStage[0] ? "BLACK" : "ok",
+                     g_probeStage[1] < 0 ? "?" : g_probeStage[1] ? "BLACK" : "ok");
         }
         if (p.frames % 300 == 0)
             LOGI("probe: %llu of the last %llu frames black; by ring slot %llu/%llu/%llu of %llu/%llu/%llu; by source age"
                  " (never/0/1/2+) %llu/%llu/%llu/%llu of %llu/%llu/%llu/%llu; by present image %llu/%llu/%llu/%llu;"
-                 " by frame mod 3 %llu/%llu/%llu",
+                 " by frame mod 3 %llu/%llu/%llu; by command slot %llu/%llu/%llu of %llu/%llu/%llu;"
+                 " among the black: source ok/BLACK %llu/%llu, after the blit ok/BLACK %llu/%llu",
                  (unsigned long long)p.black, (unsigned long long)p.frames,
                  (unsigned long long)p.blackByRing[0], (unsigned long long)p.blackByRing[1], (unsigned long long)p.blackByRing[2],
                  (unsigned long long)p.framesByRing[0], (unsigned long long)p.framesByRing[1], (unsigned long long)p.framesByRing[2],
@@ -671,7 +783,11 @@ namespace vk::renderer::detail
                  (unsigned long long)p.framesByAge[2], (unsigned long long)p.framesByAge[3],
                  (unsigned long long)p.blackByPresent[0], (unsigned long long)p.blackByPresent[1],
                  (unsigned long long)p.blackByPresent[2], (unsigned long long)p.blackByPresent[3],
-                 (unsigned long long)p.blackByMod3[0], (unsigned long long)p.blackByMod3[1], (unsigned long long)p.blackByMod3[2]);
+                 (unsigned long long)p.blackByMod3[0], (unsigned long long)p.blackByMod3[1], (unsigned long long)p.blackByMod3[2],
+                 (unsigned long long)p.blackBySlot[0], (unsigned long long)p.blackBySlot[1], (unsigned long long)p.blackBySlot[2],
+                 (unsigned long long)p.framesBySlot[0], (unsigned long long)p.framesBySlot[1], (unsigned long long)p.framesBySlot[2],
+                 (unsigned long long)p.blackStage[0][1], (unsigned long long)p.blackStage[0][2],
+                 (unsigned long long)p.blackStage[1][1], (unsigned long long)p.blackStage[1][2]);
     }
 
     FrameReadBacks PlanReadBacks()
