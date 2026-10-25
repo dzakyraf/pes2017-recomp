@@ -342,6 +342,9 @@ class CaptureSession(private val activity: Activity, private val prefs: Prefs) {
             "fps limit ${prefs.fpsLimit}, low memory ${prefs.lowMemory}\n")
         info.append("  texture memory ${if (prefs.textureBudgetMB > 0) "${prefs.textureBudgetMB} MB" else "auto"}, " +
             "compile all shaders ${prefs.prewarmAllShaders}, audio ${prefs.audioEnabled}\n")
+        info.append("  experiments: arena ${if (prefs.arenaMB > 0) "${prefs.arenaMB} MB" else "auto"}, classic render path ${prefs.expLegacy}, " +
+            "skip colour table ${prefs.expNoTable}, hardware BC ${prefs.expBcHw}, per-draw depth ${prefs.expDynamicDepth}, " +
+            "black-frame guard ${prefs.blackGuard}\n")
         info.append("  touch controls ${prefs.touchControls}, gamepad ${prefs.gamepadEnabled}, vibration ${prefs.vibration}\n")
         return info.toString()
     }

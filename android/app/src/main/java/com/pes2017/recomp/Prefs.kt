@@ -94,6 +94,23 @@ class Prefs(context: Context) {
         get() = store.getBoolean(KEY_CROWD, true)
         set(value) = store.edit().putBoolean(KEY_CROWD, value).apply()
 
+    /** Bug-hunting experiments (Settings > Experiments); each is sent to the runtime at the next start. */
+    var arenaMB: Int   // 0 = automatic
+        get() = store.getInt(KEY_ARENA_MB, 0)
+        set(value) = store.edit().putInt(KEY_ARENA_MB, value).apply()
+    var expLegacy: Boolean
+        get() = store.getBoolean(KEY_EXP_LEGACY, false)
+        set(value) = store.edit().putBoolean(KEY_EXP_LEGACY, value).apply()
+    var expNoTable: Boolean
+        get() = store.getBoolean(KEY_EXP_NO_TABLE, false)
+        set(value) = store.edit().putBoolean(KEY_EXP_NO_TABLE, value).apply()
+    var expBcHw: Boolean
+        get() = store.getBoolean(KEY_EXP_BC_HW, false)
+        set(value) = store.edit().putBoolean(KEY_EXP_BC_HW, value).apply()
+    var expDynamicDepth: Boolean
+        get() = store.getBoolean(KEY_EXP_DYNAMIC_DEPTH, false)
+        set(value) = store.edit().putBoolean(KEY_EXP_DYNAMIC_DEPTH, value).apply()
+
     /** Show the frame before a lone black frame instead of it (PES17_BLACK_GUARD); reads every frame back, so it costs speed. */
     var blackGuard: Boolean
         get() = store.getBoolean(KEY_BLACK_GUARD, false)
@@ -340,6 +357,11 @@ class Prefs(context: Context) {
         private const val KEY_BALL_SCALE = "ballScale"
         private const val KEY_FSR = "fsr"
         private const val KEY_BLACK_GUARD = "blackGuard"
+        private const val KEY_ARENA_MB = "arenaMB"
+        private const val KEY_EXP_LEGACY = "expLegacy"
+        private const val KEY_EXP_NO_TABLE = "expNoTable"
+        private const val KEY_EXP_BC_HW = "expBcHw"
+        private const val KEY_EXP_DYNAMIC_DEPTH = "expDynamicDepth"
         private const val KEY_DYNAMIC_SCALE = "dynamicScale"   // the first, single adaptive switch
         private const val KEY_HEAT_SCALE = "heatScale"
         private const val KEY_LOAD_SCALE = "loadScale"

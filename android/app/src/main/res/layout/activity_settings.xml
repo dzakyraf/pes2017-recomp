@@ -796,6 +796,129 @@
                     style="@style/SectionHeading"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:text="@string/section_experiments" />
+
+                <LinearLayout style="@style/SettingGroup">
+
+                    <TextView
+                        style="@style/SettingHint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/experiments_hint" />
+
+                    <TextView
+                        style="@style/SettingHint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/arena_hint" />
+
+                    <RadioGroup
+                        android:id="@+id/arena_size"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:paddingStart="6dp">
+
+                        <RadioButton
+                            android:id="@+id/arena_auto"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="@string/arena_auto"
+                            android:textColor="@color/pes_text" />
+
+                        <RadioButton
+                            android:id="@+id/arena_128"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="128"
+                            android:textColor="@color/pes_text" />
+
+                        <RadioButton
+                            android:id="@+id/arena_192"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="192"
+                            android:textColor="@color/pes_text" />
+
+                        <RadioButton
+                            android:id="@+id/arena_256"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="256"
+                            android:textColor="@color/pes_text" />
+
+                        <RadioButton
+                            android:id="@+id/arena_320"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="320"
+                            android:textColor="@color/pes_text" />
+
+                    </RadioGroup>
+
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/exp_legacy"
+                        style="@style/SettingSwitch"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/exp_legacy" />
+
+                    <TextView
+                        style="@style/SettingHint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/exp_legacy_hint" />
+
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/exp_no_table"
+                        style="@style/SettingSwitch"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/exp_no_table" />
+
+                    <TextView
+                        style="@style/SettingHint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/exp_no_table_hint" />
+
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/exp_bc_hw"
+                        style="@style/SettingSwitch"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/exp_bc_hw" />
+
+                    <TextView
+                        style="@style/SettingHint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/exp_bc_hw_hint" />
+
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/exp_dynamic_depth"
+                        style="@style/SettingSwitch"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/exp_dynamic_depth" />
+
+                    <TextView
+                        style="@style/SettingHint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/exp_dynamic_depth_hint" />
+
+                </LinearLayout>
+
+                <TextView
+                    style="@style/SectionHeading"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
                     android:text="@string/section_storage" />
 
                 <LinearLayout style="@style/SettingGroup">
