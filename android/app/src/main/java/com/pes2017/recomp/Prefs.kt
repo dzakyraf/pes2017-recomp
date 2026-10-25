@@ -99,6 +99,15 @@ class Prefs(context: Context) {
         get() = store.getBoolean(KEY_FSR, false)
         set(value) = store.edit().putBoolean(KEY_FSR, value).apply()
 
+    /**
+     * Frame generation (PES17_FRAMEGEN): the game draws 30 frames a second and a frame made
+     * between each two real ones fills the other blanks of the 60 Hz screen, for half the work
+     * and heat. Sets the 30 fps limit and the 60 Hz screen itself while it is on.
+     */
+    var frameGeneration: Boolean
+        get() = store.getBoolean(KEY_FRAMEGEN, false)
+        set(value) = store.edit().putBoolean(KEY_FRAMEGEN, value).apply()
+
     /** RCAS sharpness in stops (PES17_FSR_SHARPNESS): 0 is sharpest, 2 is softest. */
     var fsrSharpness: Float
         get() = store.getFloat(KEY_FSR_SHARP, 0.2f).coerceIn(0f, 2f)
@@ -334,6 +343,7 @@ class Prefs(context: Context) {
         private const val KEY_SCENE_SCALE = "sceneScale"
         private const val KEY_BALL_SCALE = "ballScale"
         private const val KEY_FSR = "fsr"
+        private const val KEY_FRAMEGEN = "frameGeneration"
         private const val KEY_DYNAMIC_SCALE = "dynamicScale"   // the first, single adaptive switch
         private const val KEY_HEAT_SCALE = "heatScale"
         private const val KEY_LOAD_SCALE = "loadScale"

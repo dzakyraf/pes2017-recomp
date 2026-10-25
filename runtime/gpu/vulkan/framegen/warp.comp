@@ -1,0 +1,109 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// The frame halfway between the two real ones: the field's vector interpolated to each pixel, the
+// previous frame fetched at -v/2 and the current one at +v/2, the two averaged.
+//
+// Where the two ends disagree, the field is wrong there -- the ball above all, too small for a
+// 16-pixel block to follow, so the field there moves with the pitch. Averaging such a pixel
+// draws the ball at half strength in two places, broken up, every other frame, which shimmers.
+// The ball itself does better than that when the renderer saw it in both frames (framegen.h,
+// NoteBall: its draw is known, so its centre is exact): it is copied from the current frame to
+// halfway between its two centres, and the spots it left and reaches are filled from the frame
+// where it is not, so it moves at 60 with the rest. Its shadow is still held.
+//
+// Elsewhere a pixel whose ends disagree takes the previous frame's: the ball stays whole and moves at the
+// title's own 30 a second while the pitch round it moves at 60. Where the fine field only follows
+// the camera (it agrees with the coarse one, which a ball cannot move), the previous frame is
+// fetched along the coarse vector and the disagreement judged along it too: the fine vector varies
+// across the ball, and fetching along it cut the held ball down to a sliver.
+//
+// Tried and dropped: choosing among the block vectors round a pixel by how well its two ends agree
+// (on flat grass a wrong vector agrees as well as the right one, and pitch lines and players came
+// apart); a forward search from the previous frame for small objects, put where they are halfway
+// (it found the ball only some of the time, and took texture in the grass for objects).
+#include "common.glsl"
+layout(set = 0, binding = 0) uniform sampler2D prev;
+layout(set = 0, binding = 1) uniform sampler2D cur;
+layout(set = 0, binding = 2) uniform sampler2D field;
+layout(set = 0, binding = 3) uniform sampler2D coarseField;
+layout(set = 0, binding = 4, rgba8) uniform writeonly image2D mid;
+layout(push_constant) uniform Constants
+{
+    ivec2 size;
+    vec2 texel;
+    ivec2 grid;
+    float blockPixels;      // the frame's pixels per fine block
+    float lumaScale;        // the frame's pixels per fine level pixel
+    vec2 coarseTexel;       // 1 / (the coarse field's size in the frame's pixels)
+    float coarseScale;      // the frame's pixels per coarse level pixel
+    float ballRadius;       // 0 when the ball is not known in both frames
+    vec2 ballPrevious;      // its centre in the previous frame and in the current one, in the frame's pixels
+    vec2 ballCurrent;
+} pc;
+
+// No motion has to be clearly better than the field's vector: it wins where the interface sits
+// still over a moving picture, and nowhere it would only be a cheaper match of flat grass to flat
+// grass, which wipes out the pitch lines on it.
+const float kStillBias = 0.15;
+// Ends differing by less than the first (sum over RGB) are averaged, by more than the second the
+// previous frame's is taken, and between the two it is a blend of both.
+const float kAgree = 0.15, kDisagree = 0.35;
+// The fine vector only follows the camera when it is within this many pixels of the coarse one.
+const float kFollowsCamera = 6.0;
+
+vec3 g_a, g_b;
+
+float Try(vec2 centre, vec2 v)
+{
+    const vec3 a = texture(prev, (centre - 0.5 * v) * pc.texel).rgb;
+    const vec3 b = texture(cur, (centre + 0.5 * v) * pc.texel).rgb;
+    g_a = a; g_b = b;
+    const vec3 d = abs(a - b);
+    return d.r + d.g + d.b;
+}
+
+void main()
+{
+    const ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(p, pc.size))) return;
+    const vec2 centre = vec2(p) + 0.5;
+
+    // The fields hold their level's pixels; the scales turn them into the frame's.
+    const vec2 v = texture(field, centre / pc.blockPixels / vec2(pc.grid)).xy * pc.lumaScale;
+    float best = Try(centre, v);
+    vec3 a = g_a, b = g_b;
+    const float still = Try(centre, vec2(0.0)) + kStillBias;
+    if (still < best) { best = still; a = g_a; b = g_b; }
+    float hold = smoothstep(kAgree, kDisagree, best);
+    vec3 held = a;
+
+    const vec2 camera = texture(coarseField, centre * pc.coarseTexel).xy * pc.coarseScale;
+    if (distance(v, camera) < kFollowsCamera)
+    {
+        const float e = Try(centre, camera);
+        const float h = smoothstep(kAgree, kDisagree, e);
+        if (h > hold * 0.5) { hold = max(hold, h); held = g_a; }
+    }
+    // A fetch that lands on the ball where it was or where it goes would bring it back: take the
+    // other frame's instead.
+    if (pc.ballRadius > 0.0)
+    {
+        const float r = pc.ballRadius + 2.5;
+        const bool aOnBall = distance(centre - 0.5 * v, pc.ballPrevious) < r;
+        const bool bOnBall = distance(centre + 0.5 * v, pc.ballCurrent) < r;
+        if (aOnBall && !bOnBall) { a = b; held = b; hold = 1.0; }
+        else if (bOnBall && !aOnBall) { b = a; held = a; hold = 1.0; }
+    }
+    vec3 colour = mix(0.5 * (a + b), held, hold);
+
+    // The ball halfway, from the current frame, with a soft edge.
+    if (pc.ballRadius > 0.0)
+    {
+        const vec2 halfway = 0.5 * (pc.ballPrevious + pc.ballCurrent);
+        const float d = distance(centre, halfway);
+        const float w = 1.0 - smoothstep(pc.ballRadius - 0.5, pc.ballRadius + 1.0, d);
+        if (w > 0.0)
+            colour = mix(colour, texture(cur, (centre + pc.ballCurrent - halfway) * pc.texel).rgb, w);
+    }
+    imageStore(mid, p, vec4(colour, 1.0));
+}

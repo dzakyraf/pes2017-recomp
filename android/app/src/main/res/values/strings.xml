@@ -272,6 +272,8 @@
     <string name="crowd_hint">Off leaves the stands empty and spares the renderer and the GPU the crowd\u2019s drawing, which keeps the phone a little cooler in a match. The game still animates it. Takes effect the next time the game starts.</string>
     <string name="fsr">Sharper upscaling (FSR)</string>
     <string name="fsr_hint">Uses an AMD FSR upscale and sharpen pass instead of a plain stretch. Costs a few frames on a hot phone.</string>
+    <string name="frame_gen">Frame generation (30 to 60)</string>
+    <string name="frame_gen_hint">The game draws 30 frames a second and a frame made between each two fills the gaps, so the 60 Hz screen stays smooth for about half the work and heat. Fast movement can look soft. Sets the 30 fps limit while on.</string>
     <string name="fsr_sharp">Sharpness: %1$.1f</string>
     <string name="widescreen">Widescreen (fill the screen)</string>
     <string name="widescreen_hint">Widens the game\'s camera to the phone\'s shape and fills the whole screen instead of showing black bars at the sides (PES17_ASPECT). Menus and the score bar are stretched sideways. Takes effect on the next start.</string>

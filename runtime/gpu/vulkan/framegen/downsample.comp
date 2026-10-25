@@ -1,0 +1,22 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Luma at a quarter of the input's size each way: each output pixel is the mean of a 4x4 block,
+// taken as four bilinear taps at the corners shared by its 2x2 quads. The input is the frame (its
+// colour is turned into luma) or, for the next level down, luma already (in red).
+#include "common.glsl"
+layout(set = 0, binding = 0) uniform sampler2D frame;
+layout(set = 0, binding = 4, rgba8) uniform writeonly image2D luma;
+layout(push_constant) uniform Constants { ivec2 size; vec2 frameTexel; int lumaInput; } pc;
+
+void main()
+{
+    const ivec2 q = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(q, pc.size))) return;
+    const vec2 base = vec2(q * 4);
+    vec3 c = texture(frame, (base + vec2(1.0, 1.0)) * pc.frameTexel).rgb
+           + texture(frame, (base + vec2(3.0, 1.0)) * pc.frameTexel).rgb
+           + texture(frame, (base + vec2(1.0, 3.0)) * pc.frameTexel).rgb
+           + texture(frame, (base + vec2(3.0, 3.0)) * pc.frameTexel).rgb;
+    const float l = pc.lumaInput != 0 ? c.r * 0.25 : dot(c * 0.25, vec3(0.299, 0.587, 0.114));
+    imageStore(luma, q, vec4(l, 0.0, 0.0, 1.0));
+}

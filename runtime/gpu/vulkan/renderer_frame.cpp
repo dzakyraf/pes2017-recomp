@@ -6,6 +6,7 @@
 #include <vector>
 #include "capture.h"
 #include "presenter.h"
+#include "framegen.h"
 #include "texture_cache.h"
 #include "../../log.h"
 #include "../../pacing_trace.h"
@@ -433,6 +434,10 @@ namespace vk::renderer::detail
         g.presentIndex = (g.presentIndex + 1) % kPresentImages;
         ExamineFrame(worldDrawn, plan);
         const uint32_t width = g.presentWidth, height = g.presentHeight;
+        // Before the frame reaches the window, which looks the ball up by the frame's serial.
+        if (vk::framegen::WantsBall())
+            vk::framegen::NoteBall(frame, g.frameBall.seen, g.frameBall.x, g.frameBall.y, g.frameBall.radius);
+        g.frameBall = {};
         vk::record::Host([=] { vk::ShowImage(present, width, height, frame); });
     }
 }

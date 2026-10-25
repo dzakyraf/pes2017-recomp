@@ -259,6 +259,19 @@
                         android:layout_height="wrap_content"
                         android:text="@string/fsr_hint" />
 
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/frame_gen"
+                        style="@style/SettingSwitch"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/frame_gen" />
+
+                    <TextView
+                        style="@style/SettingHint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/frame_gen_hint" />
+
                     <TextView
                         android:id="@+id/fsr_sharp_label"
                         style="@style/SettingLabel"

@@ -284,6 +284,8 @@ namespace vk::renderer::detail
         // ceiling. The status comes from the Java side, on another thread.
         bool dynamicScale = false;                 // either rule on
         float ballScale = 1.0f;                    // PES17_BALL_SCALE: the ball model drawn this many times larger
+        // Where this frame drew the ball, in the frame's pixels, for frame generation (framegen.h).
+        struct { bool seen = false; float x = 0, y = 0, radius = 0; } frameBall;
         bool heatScale = false, loadScale = false; // the rules (dynamic_scale.h SetRules)
         vk::dynscale::Controller dynScale;
         std::atomic<int> thermalStatus{ 0 };

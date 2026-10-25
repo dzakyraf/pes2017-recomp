@@ -59,6 +59,7 @@ std::string vk::PresenterReport() { return "presenter: none (headless build)\n";
 #include "loader.h"
 #include "util.h"
 #include "upscaler.h"
+#include "framegen.h"
 
 namespace
 {
@@ -828,50 +829,33 @@ namespace
                        target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
     }
 
-    void DrawOneFrame(bool idle)
+    // The next swapchain image and a frame slot to fill it from. False when there is none this time:
+    // the swapchain is out of date (remade before the next frame) or the acquire failed.
+    bool Acquire(Frame*& slot, uint32_t& imageIndex)
     {
-        if (g.remakeSwapchain) RemakeSwapchain();
-        if (g.remakeSwapchain || !g.swapchain) { LetGo(); return; }
-
         Frame& frame = g.frames[g.frameIndex];
         if (vk::pipeline::Failed(vkWaitForFences(g.device, 1, &frame.inFlight, VK_TRUE, UINT64_MAX),
                                  "the presenter's fence"))
-            return;
+            return false;
 
         // FIFO: this is where the window waits for the display, with the
         // frame it will show still in the queue, so the queue's length is
         // how far the renderer is ahead of the screen.
-        uint32_t imageIndex = 0;
         VkResult acquired = vkAcquireNextImageKHR(g.device, g.swapchain, UINT64_MAX,
                                                   frame.acquired, VK_NULL_HANDLE, &imageIndex);
         // Out of date: nothing was acquired, and the semaphore is untouched;
         // remade next frame. Suboptimal: an image was acquired and is shown,
         // since the semaphore it signals has to be waited on, and then remade.
-        if (acquired == VK_ERROR_OUT_OF_DATE_KHR) { g.remakeSwapchain = true; return; }
+        if (acquired == VK_ERROR_OUT_OF_DATE_KHR) { g.remakeSwapchain = true; return false; }
         if (acquired == VK_SUBOPTIMAL_KHR) { if (!g.suboptimalIsExpected) g.remakeSwapchain = true; }
-        else if (acquired != VK_SUCCESS) return;
+        else if (acquired != VK_SUCCESS) return false;
+        slot = &frame;
+        return true;
+    }
 
-        Presenter::Queued shown;
-        if (!idle)
-        {
-            std::lock_guard lock(g.lock);
-            // Off the blank (PES17_FPS_LIMIT) the title finishes frames whenever
-            // it likes, and the display still takes one a blank: the newest is
-            // shown and the ones before it are let go.
-            while (!frame_rate::Console() && g.frameQueue.size() > 1)
-            {
-                g.taken = std::max(g.taken, g.frameQueue.front().serial);
-                g.frameQueue.pop_front();
-                g.droppedFrames.fetch_add(1, std::memory_order_relaxed);
-                g.takenWake.notify_all();
-            }
-            if (!g.frameQueue.empty())
-            {
-                shown = g.frameQueue.front();
-                g.frameQueue.pop_front();
-            }
-        }
-
+    // Starts `frame`'s commands with swapchain image `image` made ready to be copied into.
+    void Begin(Frame& frame, VkImage image)
+    {
         vkResetFences(g.device, 1, &frame.inFlight);
         vkResetCommandBuffer(frame.commands, 0);
 
@@ -879,68 +863,64 @@ namespace
         begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(frame.commands, &begin);
 
-        VkImage image = g.images[imageIndex];
         // At the transfer stage, which the acquire's semaphore holds back, so the
         // transition does not run before the image is ours.
         vk::util::Barrier(frame.commands, image, VK_IMAGE_ASPECT_COLOR_BIT,
                           VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                           0, VK_ACCESS_TRANSFER_WRITE_BIT,
                           VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    }
 
-        if (shown.image && shown.width && shown.height)
+    // A picture of `width` x `height` in TRANSFER_SRC layout, scaled to the window at its own
+    // proportions, into swapchain image `image` (TRANSFER_DST).
+    void DrawPicture(Frame& frame, VkImage image, VkImage picture, uint32_t width, uint32_t height)
+    {
+        // The bars are cleared first; the clear covers the whole image and the blit
+        // paints over the middle, which is cheaper than working out the bars.
+        VkImageBlit blit{};
+        blit.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+        blit.srcOffsets[1] = { int32_t(width), int32_t(height), 1 };
+        blit.dstSubresource = blit.srcSubresource;
+        Letterbox(width, height, blit.dstOffsets[0], blit.dstOffsets[1]);
+        const bool bars = blit.dstOffsets[0].x || blit.dstOffsets[0].y;
+        if (bars)
         {
-            // The renderer's frame, scaled to the window at its own proportions.
-            // It is in TRANSFER_SRC layout, and its owner does not draw into it
-            // again until this copy is submitted (WaitUntilTaken). The bars are
-            // cleared first; the clear covers the whole image and the blit
-            // paints over the middle, which is cheaper than working out the bars.
-            VkImageBlit blit{};
-            blit.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-            blit.srcOffsets[1] = { int32_t(shown.width), int32_t(shown.height), 1 };
-            blit.dstSubresource = blit.srcSubresource;
-            Letterbox(shown.width, shown.height, blit.dstOffsets[0], blit.dstOffsets[1]);
-            const bool bars = blit.dstOffsets[0].x || blit.dstOffsets[0].y;
-            if (bars)
-            {
-                VkClearColorValue black{};
-                VkImageSubresourceRange range{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-                vkCmdClearColorImage(frame.commands, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                     &black, 1, &range);
-                vk::util::Barrier(frame.commands, image, VK_IMAGE_ASPECT_COLOR_BIT,
-                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                  VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
-                                  VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-            }
-            // FSR 1 to the picture's size, then a 1:1 copy into place; the bilinear blit when it
-            // is off or cannot run.
-            const uint32_t pictureWidth = uint32_t(blit.dstOffsets[1].x - blit.dstOffsets[0].x);
-            const uint32_t pictureHeight = uint32_t(blit.dstOffsets[1].y - blit.dstOffsets[0].y);
-            const VkImage upscaled = vk::upscale::Enabled()
-                ? vk::upscale::Record(g.device, g.physical, frame.commands, g.frameIndex, shown.image,
-                                      shown.width, shown.height, pictureWidth, pictureHeight)
-                : VK_NULL_HANDLE;
-            (upscaled ? g.upscaledPresents : g.blitPresents).fetch_add(1, std::memory_order_relaxed);
-            if (upscaled)
-            {
-                blit.srcOffsets[1] = { int32_t(pictureWidth), int32_t(pictureHeight), 1 };
-                vkCmdBlitImage(frame.commands, upscaled, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                               image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
-            }
-            else
-                vkCmdBlitImage(frame.commands, shown.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                               image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+            VkClearColorValue black{};
+            VkImageSubresourceRange range{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            vkCmdClearColorImage(frame.commands, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                 &black, 1, &range);
+            vk::util::Barrier(frame.commands, image, VK_IMAGE_ASPECT_COLOR_BIT,
+                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                              VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+                              VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+        }
+        // FSR 1 to the picture's size, then a 1:1 copy into place; the bilinear blit when it
+        // is off or cannot run.
+        const uint32_t pictureWidth = uint32_t(blit.dstOffsets[1].x - blit.dstOffsets[0].x);
+        const uint32_t pictureHeight = uint32_t(blit.dstOffsets[1].y - blit.dstOffsets[0].y);
+        const VkImage upscaled = vk::upscale::Enabled()
+            ? vk::upscale::Record(g.device, g.physical, frame.commands, g.frameIndex, picture,
+                                  width, height, pictureWidth, pictureHeight)
+            : VK_NULL_HANDLE;
+        (upscaled ? g.upscaledPresents : g.blitPresents).fetch_add(1, std::memory_order_relaxed);
+        if (upscaled)
+        {
+            blit.srcOffsets[1] = { int32_t(pictureWidth), int32_t(pictureHeight), 1 };
+            vkCmdBlitImage(frame.commands, upscaled, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
         }
         else
-        {
-            g.emptyPresents.fetch_add(1, std::memory_order_relaxed);
-            // A recognisably "nothing rendered yet" colour rather than black, so
-            // a blank window is distinguishable from a dead one.
-            VkClearColorValue colour{};
-            colour.float32[0] = 0.06f; colour.float32[1] = 0.07f; colour.float32[2] = 0.10f; colour.float32[3] = 1.0f;
-            VkImageSubresourceRange range{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-            vkCmdClearColorImage(frame.commands, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &colour, 1, &range);
-        }
+            vkCmdBlitImage(frame.commands, picture, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+    }
+
+    // Ends `frame`'s commands, submits them, lets the renderer have frame `taken` back (0 for none)
+    // and presents swapchain image `imageIndex`; `presentId` (0 for none) is what the present wait
+    // follows. Moves on to the next frame slot. False when the submission failed.
+    bool SubmitAndPresent(Frame& frame, uint32_t imageIndex, uint64_t taken, uint64_t presentId)
+    {
+        VkImage image = g.images[imageIndex];
         DrawOverlay(frame, image);
 
         vk::util::Barrier(frame.commands, image, VK_IMAGE_ASPECT_COLOR_BIT,
@@ -973,17 +953,17 @@ namespace
             VkSubmitInfo emptySubmit{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
             std::lock_guard queueLock(vk::pipeline::QueueMutex());
             vkQueueSubmit(g.queue, 1, &emptySubmit, frame.inFlight);
-            return;
+            return false;
         }
         // The copy is in the queue ahead of anything the renderer submits from
         // now on, so the renderer may draw over the image.
-        if (shown.serial)
+        if (taken)
         {
             std::lock_guard lock(g.lock);
-            g.taken = std::max(g.taken, shown.serial);
+            g.taken = std::max(g.taken, taken);
             g.takenWake.notify_all();
         }
-        if (shown.serial) stutters::Shown(shown.serial);
+        if (presentId) stutters::Shown(presentId);
 
         VkPresentInfoKHR present{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
         present.waitSemaphoreCount = 1;
@@ -994,8 +974,8 @@ namespace
         // The frame's serial is its present id: they only ever go up.
         VkPresentIdKHR id{ VK_STRUCTURE_TYPE_PRESENT_ID_KHR };
         id.swapchainCount = 1;
-        id.pPresentIds = &shown.serial;
-        if (g.presentWait && shown.serial) present.pNext = &id;
+        id.pPresentIds = &presentId;
+        if (g.presentWait && presentId) present.pNext = &id;
         // Out of date and suboptimal here mean the window changed under the
         // present: the swapchain is remade before the next frame. Only a lost
         // device is a failure.
@@ -1008,16 +988,90 @@ namespace
             g.remakeSwapchain = true;
         else
             vk::pipeline::Failed(presented, "present");
-        if (g.presentWait && shown.serial &&
+        if (g.presentWait && presentId &&
             (presented == VK_SUCCESS || presented == VK_SUBOPTIMAL_KHR))
         {
             std::lock_guard waiting(g.waitLock);
-            g.waiting.push_back(shown.serial);
+            g.waiting.push_back(presentId);
             g.waitWake.notify_one();
         }
 
         g.frameIndex = (g.frameIndex + 1) % kFramesInFlight;
         g.presented.fetch_add(1, std::memory_order_relaxed);
+        return true;
+    }
+
+    // Shows the oldest queued frame, or with `idle` the window's own colour
+    // before the renderer has finished any. Under frame generation
+    // (framegen.h) a real frame is two presents: the frame made between it
+    // and the one before, then the frame itself, a blank later.
+    void DrawOneFrame(bool idle)
+    {
+        if (g.remakeSwapchain) RemakeSwapchain();
+        if (g.remakeSwapchain || !g.swapchain) { LetGo(); return; }
+
+        Frame* slot = nullptr;
+        uint32_t imageIndex = 0;
+        if (!Acquire(slot, imageIndex)) return;
+        Frame& frame = *slot;
+
+        Presenter::Queued shown;
+        if (!idle)
+        {
+            std::lock_guard lock(g.lock);
+            // Off the blank (PES17_FPS_LIMIT) the title finishes frames whenever
+            // it likes, and the display still takes one a blank: the newest is
+            // shown and the ones before it are let go.
+            while (!frame_rate::Console() && g.frameQueue.size() > 1)
+            {
+                g.taken = std::max(g.taken, g.frameQueue.front().serial);
+                g.frameQueue.pop_front();
+                g.droppedFrames.fetch_add(1, std::memory_order_relaxed);
+                g.takenWake.notify_all();
+            }
+            if (!g.frameQueue.empty())
+            {
+                shown = g.frameQueue.front();
+                g.frameQueue.pop_front();
+            }
+        }
+
+        VkImage image = g.images[imageIndex];
+        Begin(frame, image);
+
+        const bool picture = shown.image && shown.width && shown.height;
+        vk::framegen::Result generated;
+        if (picture && vk::framegen::Wanted(frame_rate::Limit(), g.periodNs))
+            generated = vk::framegen::Record(g.device, g.physical, frame.commands, shown.image,
+                                             shown.width, shown.height, Nanoseconds(), g.periodNs, shown.serial);
+        else if (picture)
+            vk::framegen::Reset();
+        const bool made = generated.made && generated.real;
+
+        if (picture)
+            // The renderer's frame is in TRANSFER_SRC layout, and its owner does not draw into it
+            // again until this copy is submitted (WaitUntilTaken).
+            DrawPicture(frame, image, made ? generated.made : shown.image, shown.width, shown.height);
+        else
+        {
+            g.emptyPresents.fetch_add(1, std::memory_order_relaxed);
+            // A recognisably "nothing rendered yet" colour rather than black, so
+            // a blank window is distinguishable from a dead one.
+            VkClearColorValue colour{};
+            colour.float32[0] = 0.06f; colour.float32[1] = 0.07f; colour.float32[2] = 0.10f; colour.float32[3] = 1.0f;
+            VkImageSubresourceRange range{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            vkCmdClearColorImage(frame.commands, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &colour, 1, &range);
+        }
+        // A made frame carries no present id: the id is the real frame's, on its own present.
+        if (!SubmitAndPresent(frame, imageIndex, shown.serial, made ? 0 : shown.serial) || !made) return;
+
+        // The real frame, from framegen's copy of it: the renderer has its image back already.
+        // FIFO holds this present until the made one has had its blank.
+        if (g.remakeSwapchain || !Acquire(slot, imageIndex)) return;
+        image = g.images[imageIndex];
+        Begin(*slot, image);
+        DrawPicture(*slot, image, generated.real, shown.width, shown.height);
+        SubmitAndPresent(*slot, imageIndex, 0, shown.serial);
     }
 
     void Teardown()
@@ -1027,6 +1081,7 @@ namespace
             vkDeviceWaitIdle(g.device);
             DestroyOverlay();
             vk::upscale::Destroy(g.device);
+            vk::framegen::Destroy(g.device);
             for (auto& frame : g.frames)
             {
                 if (frame.acquired) vkDestroySemaphore(g.device, frame.acquired, nullptr);
@@ -1462,6 +1517,8 @@ std::string vk::PresenterReport()
         (unsigned long long)g.stretched, (unsigned long long)g.behindCount[0], (unsigned long long)g.behindCount[1],
         (unsigned long long)g.behindCount[2], (unsigned long long)g.behindCount[3]);
     add("upscaler: %s now\n", vk::upscale::Enabled() ? "on" : "off");
+    add("framegen: %s now, %llu frames made\n", vk::framegen::Wanted(frame_rate::Limit(), g.periodNs) ? "on" : "off",
+        (unsigned long long)vk::framegen::MadeFrames());
 
     if (g.physical)
     {

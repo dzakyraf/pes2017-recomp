@@ -69,6 +69,7 @@ class SettingsActivity : AppCompatActivity() {
             { getString(R.string.scene_scale, 50 + it * 5) }) { prefs.sceneScalePercent = 50 + it * 5; presetTouched() }
         switch(R.id.msaa, prefs.multisampling) { prefs.multisampling = it; presetTouched() }
         switch(R.id.fsr, prefs.fsr) { prefs.fsr = it; presetTouched() }
+        switch(R.id.frame_gen, prefs.frameGeneration) { prefs.frameGeneration = it }
         bar(R.id.fsr_sharp, R.id.fsr_sharp_label, 20, (prefs.fsrSharpness * 10f).roundToInt(),
             { getString(R.string.fsr_sharp, it / 10f) }) { prefs.fsrSharpness = it / 10f }
 

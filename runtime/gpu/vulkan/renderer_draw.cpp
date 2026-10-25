@@ -10,6 +10,7 @@
 #include "../../env.h"
 #include "../internal.h"
 #include "../xe/memexport.h"
+#include "framegen.h"
 #include <atomic>
 
 #include <algorithm>
@@ -117,6 +118,58 @@ namespace vk::renderer::detail
         reachX = uint32_t(std::ceil(maxX));
         reachY = uint32_t(std::ceil(maxY));
         return true;
+    }
+
+    // Where the ball's colour-pass draw lands on screen, for frame generation (framegen.h), which
+    // places the ball itself in the frames it makes: a spread of its vertices run through its
+    // vertex shader on the CPU, divided by w and put through the viewport. The centre of what they
+    // cover is the ball's; their reach, times the ball scale, its radius.
+    void NoteBall(const gpu::RegisterFile& r, const vk::renderer::DrawCall& call)
+    {
+        static uint32_t told = 0;
+        if (!call.vertexCode || !call.indexed || !call.indexAddress)
+        {
+            if (told++ < 3) LOGW("framegen: ball draw without code or indices (indexed %d)", int(call.indexed));
+            return;
+        }
+        xe_memexport::Job job{};
+        job.registers = r.values; job.vertexCode = call.vertexCode; job.vertexWords = call.vertexWords;
+        job.firstVertex = r[0x2102] & 0xFFFFFFu;
+        job.physicalBase = GuestPtr<uint8_t>(kernel::FromPhysical(0)); job.physicalSize = 0x20000000;
+        auto asFloat = [&](uint32_t index) { return std::bit_cast<float>(r[index]); };
+        const gpu::ViewportControl control{ r[gpu::PA_CL_VTE_CNTL] };
+        const float xScale = control.XScale() ? asFloat(gpu::PA_CL_VPORT_XSCALE) : 1.0f;
+        const float yScale = control.YScale() ? asFloat(gpu::PA_CL_VPORT_XSCALE + 2) : 1.0f;
+        const float xOffset = control.XOffset() ? asFloat(gpu::PA_CL_VPORT_XSCALE + 1) : 0.0f;
+        const float yOffset = control.YOffset() ? asFloat(gpu::PA_CL_VPORT_XSCALE + 3) : 0.0f;
+
+        const uint8_t* indices = guest::Base() + call.indexAddress;
+        constexpr uint32_t kSamples = 24;
+        float minX = 1e9f, minY = 1e9f, maxX = -1e9f, maxY = -1e9f;
+        uint32_t have = 0;
+        for (uint32_t k = 0; k < kSamples; k++)
+        {
+            const uint32_t i = uint32_t(uint64_t(k) * call.indexCount / kSamples);
+            uint32_t index;
+            if (call.index32) { uint32_t v; std::memcpy(&v, indices + 4 * i, 4); index = __builtin_bswap32(v) & 0xFFFFFF; }
+            else { uint16_t v; std::memcpy(&v, indices + 2 * i, 2); index = __builtin_bswap16(v); }
+            float clip[4]{};
+            if (!xe_memexport::Position(job, index, clip) || !(clip[3] > 0.0f)) continue;
+            const float x = xOffset + clip[0] / clip[3] * xScale, y = yOffset + clip[1] / clip[3] * yScale;
+            if (!std::isfinite(x) || !std::isfinite(y)) continue;
+            minX = std::min(minX, x); maxX = std::max(maxX, x);
+            minY = std::min(minY, y); maxY = std::max(maxY, y);
+            have++;
+        }
+        const float radius = 0.5f * std::max(maxX - minX, maxY - minY) * g.ballScale;
+        if (have < kSamples / 2 || !(radius > 0.5f) || radius > 64.0f)
+        {
+            if (told++ < 6)
+                LOGW("framegen: ball not placed: %u of %u vertices, x %.1f..%.1f, y %.1f..%.1f, viewport %.1f+%.1f %.1f+%.1f",
+                     have, kSamples, minX, maxX, minY, maxY, xOffset, xScale, yOffset, yScale);
+            return;
+        }
+        g.frameBall = { true, 0.5f * (minX + maxX), 0.5f * (minY + maxY), radius };
     }
 
     void ScissorOf(const gpu::RegisterFile& r, VkRect2D& scissor)
@@ -974,6 +1027,9 @@ void vk::renderer::Draw(const gpu::RegisterFile& r, const DrawCall& call)
     // Drawn larger so it reads on a phone's screen.
     const bool isBall = g.ballScale != 1.0f && call.indexCount == 4020 &&
                         (call.vertexHash == 0x5867DE0B52B6EFCEull || call.vertexHash == 0xEA544757ADDA275Aull);
+    if (call.indexCount == 4020 && call.vertexHash == 0x5867DE0B52B6EFCEull && !g.frameBall.seen &&
+        vk::framegen::WantsBall())
+        NoteBall(r, call);
     const ConstantOffsets constants =
         [&] { Stopwatch watch(g.constantsNanoseconds);
               return WriteConstants(r, vertex->translation, pixel->translation,

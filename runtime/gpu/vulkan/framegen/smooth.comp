@@ -1,0 +1,39 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// The field's 3x3 median, each component on its own: one block matched to the wrong place among
+// neighbours that agree takes their motion.
+#include "common.glsl"
+layout(set = 0, binding = 0) uniform sampler2D raw;
+layout(set = 0, binding = 4, rgba16f) uniform writeonly image2D field;
+layout(push_constant) uniform Constants { ivec2 grid; } pc;
+
+#define SORT2(a, b) { const float t = min(a, b); b = max(a, b); a = t; }
+
+float Median9(float v[9])
+{
+    // Paeth's median-of-nine network.
+    SORT2(v[1], v[2]); SORT2(v[4], v[5]); SORT2(v[7], v[8]);
+    SORT2(v[0], v[1]); SORT2(v[3], v[4]); SORT2(v[6], v[7]);
+    SORT2(v[1], v[2]); SORT2(v[4], v[5]); SORT2(v[7], v[8]);
+    SORT2(v[0], v[3]); SORT2(v[5], v[8]); SORT2(v[4], v[7]);
+    SORT2(v[3], v[6]); SORT2(v[1], v[4]); SORT2(v[2], v[5]);
+    SORT2(v[4], v[7]); SORT2(v[4], v[2]); SORT2(v[6], v[4]);
+    SORT2(v[4], v[2]);
+    return v[4];
+}
+
+void main()
+{
+    const ivec2 b = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(b, pc.grid))) return;
+    float xs[9], ys[9];
+    int n = 0;
+    for (int y = -1; y <= 1; y++)
+        for (int x = -1; x <= 1; x++)
+        {
+            const vec4 f = texelFetch(raw, clamp(b + ivec2(x, y), ivec2(0), pc.grid - 1), 0);
+            xs[n] = f.x; ys[n] = f.y; n++;
+        }
+    const vec4 own = texelFetch(raw, b, 0);
+    imageStore(field, b, vec4(Median9(xs), Median9(ys), own.z, 0.0));
+}

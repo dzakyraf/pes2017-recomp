@@ -63,6 +63,9 @@ them as unset whatever the environment says, and also drops the keys `F7`, `F10`
 | `PES17_FPS_LIMIT=<n>` | R | how many frames a second the title draws at most. Unset or 60 is the console's pacing, a frame at every blank. Any other number takes the title off the blank, with that number as its own limiter's; 0 is no limit. The limiter counts whole milliseconds a frame, so 120 gives 125 and 144 gives 166. The launcher's FPS LIMIT entry sets it in the settings file ([rendering.md](rendering.md#more-than-60-frames-a-second)) |
 | `PES17_MSAA=<n>` | R | draws every surface the title multisamples at n samples, rounded down to what the device offers |
 | `PES17_NO_MSAA=1` | R | draws the title's 2x and 4x surfaces at one sample |
+| `PES17_FRAMEGEN=1` | R | frame generation ([frame-generation.md](frame-generation.md)): with the title at half the display's rate (`PES17_FPS_LIMIT=30` on 60 Hz) the window shows a frame made from each two real ones between them. `files/framegen_off` turns it off live. Settings > Graphics > Frame generation sets it and the 30 limit |
+| `PES17_MAX_ANISO=<n>` | R | caps the title's anisotropic filtering at n:1 (1 is none; 16 by default, 4 on Android) |
+| `PES17_YIELD_SLEEP_US=<n>` | R | the most a guest spin wait sleeps per yield (`runtime/kernel/yield_backoff.h`); 0 is plain yields. Unset: 100 under an FPS limit below 60 or while Android reports thermal status MODERATE or worse, plain yields otherwise |
 | `PES17_ARENA_MB=<n>` | R | the upload arena for constants, vertices and indices, shared by the frame slots (512) |
 | `PES17_TEXTURE_BUDGET_MB=<n>` | R | the texture cache's budget, past which it lets go of what has not been bound lately, even textures whose memory is unchanged (defaults to half the device-local memory within 256 MB to 2 GB on desktop, and 128 MB on Android) |
 | `PES17_PIPELINE_CACHE=<file>` | R | keeps the driver's compiled pipelines across runs |

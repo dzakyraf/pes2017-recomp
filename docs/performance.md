@@ -38,3 +38,17 @@ is the same input from game start to a match. Tools added for it:
   thread is small (decode+read+stage about 1.2 s for the whole session). What a player sees as
   popping is the game's own sequence of loads; the visible hitching and missing draws of a cold
   start came from pipeline builds (see the bundled shader seed in shaders.md).
+
+## Leads not tried yet (workload and heat)
+
+- **Sun shadow map at a lower resolution.** The shadow map is one 1024x2048 depth surface holding two
+  cascades, filled by two resolves a frame ([rendering.md](rendering.md)). Targets already carry
+  their own scale (`target.scale`, set from `SceneScaleFor` in renderer_targets.cpp), and texture
+  fetches normalise over the image, so a half-size shadow image would be sampled in the right place.
+  What has to move with it: the resolve rectangles and the row a second resolve lands on
+  (`resolveSurfaces`, renderer_resolve.cpp), and the passes' viewport and scissor. The cost is the
+  title's own filtering: its PCF offsets and depth bias are in 1024-texel units, so shadows get softer
+  and may shimmer or acne. Check with a CAPTURE screenshot and `files/gpu_timing` (shadow passes'
+  ms) before keeping it; a switch such as `PES17_SHADOW_SCALE=0.5` keeps it optional.
+- **Frame generation:** render 30, show 60. See [frame-generation.md](frame-generation.md).
+

@@ -1,0 +1,88 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Symmetric block matching: for each 4x4 block of a luma level, centred where it sits in the frame
+// halfway between the two real ones, the motion v (that level's pixels, previous to current) whose
+// ends -- the previous frame at -v/2, the current one at +v/2 -- differ least. Candidates: no
+// motion, last frame's field here and at the four neighbours, the coarser level's field (when there
+// is one) here and a block away, a window round no motion, then a refinement round the best at whole
+// and half pixels. Run twice a frame: at a sixteenth of the frame's size, whose window reaches far
+// enough for a camera pan, then at a quarter, starting from that.
+//
+// A vector pays for how far it is from the predicted one (the coarse level's here, or last frame's
+// at the coarse level): on flat grass every vector matches about as well, and the noise would
+// otherwise choose, leaving the pitch lines over it to be torn apart.
+#include "common.glsl"
+layout(set = 0, binding = 0) uniform sampler2D lumaPrev;
+layout(set = 0, binding = 1) uniform sampler2D lumaCur;
+layout(set = 0, binding = 2) uniform sampler2D lastField;
+layout(set = 0, binding = 3) uniform sampler2D coarseField;
+layout(set = 0, binding = 4, rgba16f) uniform writeonly image2D field;
+layout(push_constant) uniform Constants
+{
+    ivec2 grid;
+    vec2 lumaTexel;
+    float smoothCost;       // per pixel of distance from the predicted vector
+    float range;
+    float coarseScale;      // this level's pixels per coarse level pixel; 0 = no coarser level
+    float pad;
+    vec2 coarseTexel;       // 1 / (the coarse field's size in this level's pixels)
+} pc;
+
+vec2 g_centre;
+vec2 g_predicted;
+vec2 g_best;
+float g_bestCost;
+
+float Cost(vec2 v)
+{
+    float sad = 0.0;
+    for (int y = 0; y < 4; y++)
+        for (int x = 0; x < 4; x++)
+        {
+            const vec2 p = g_centre + vec2(float(x) - 1.5, float(y) - 1.5);
+            sad += abs(texture(lumaPrev, (p - 0.5 * v) * pc.lumaTexel).r -
+                       texture(lumaCur, (p + 0.5 * v) * pc.lumaTexel).r);
+        }
+    return sad + pc.smoothCost * length(v - g_predicted);
+}
+
+void Try(vec2 v)
+{
+    const float c = Cost(v);
+    if (c < g_bestCost) { g_bestCost = c; g_best = v; }
+}
+
+void main()
+{
+    const ivec2 b = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(b, pc.grid))) return;
+    g_centre = vec2(b * 4) + 2.0;
+
+    const ivec2 last = pc.grid - 1;
+    const ivec2 around[5] = ivec2[5](ivec2(0, 0), ivec2(-1, 0), ivec2(1, 0), ivec2(0, -1), ivec2(0, 1));
+    g_predicted = pc.coarseScale > 0.0 ? texture(coarseField, g_centre * pc.coarseTexel).xy * pc.coarseScale
+                                       : texelFetch(lastField, b, 0).xy;
+    g_best = vec2(0.0);
+    g_bestCost = Cost(g_best);
+    Try(g_predicted);
+    for (int i = 0; i < 5; i++)
+        Try(texelFetch(lastField, clamp(b + around[i], ivec2(0), last), 0).xy);
+    if (pc.coarseScale > 0.0)
+    {
+        // A coarse block is 4 of its pixels, coarseScale * 4 of ours.
+        const float block = 4.0 * pc.coarseScale;
+        for (int i = 0; i < 5; i++)
+            Try(texture(coarseField, (g_centre + vec2(around[i]) * block) * pc.coarseTexel).xy * pc.coarseScale);
+    }
+    for (float y = -pc.range; y <= pc.range; y += 2.0)
+        for (float x = -pc.range; x <= pc.range; x += 2.0)
+            Try(vec2(x, y));
+    for (float step = 1.0; step >= 0.5; step *= 0.5)
+    {
+        const vec2 from = g_best;
+        for (int y = -1; y <= 1; y++)
+            for (int x = -1; x <= 1; x++)
+                if (x != 0 || y != 0) Try(from + vec2(x, y) * step);
+    }
+    imageStore(field, b, vec4(g_best, g_bestCost, 0.0));
+}

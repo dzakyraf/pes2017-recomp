@@ -346,7 +346,8 @@ class GameActivity : AppCompatActivity(), NativeListener {
         window.setSustainedPerformanceMode(!noSustained)
         Trail.note(this, "game: sustained performance mode ${if (noSustained) "off" else "on"}")
         watchThermalStatus()
-        if (prefs.prefer60Hz) {
+        // Frame generation pairs a 30 fps game with a 60 Hz screen (PES17_FRAMEGEN).
+        if (prefs.prefer60Hz || prefs.frameGeneration) {
             val attributes = window.attributes
             attributes.preferredRefreshRate = 60f
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -760,7 +761,13 @@ class GameActivity : AppCompatActivity(), NativeListener {
         val fpsOverride = try {
             getExternalFilesDir(null)?.let { File(it, "fps_limit") }?.takeIf { it.isFile }?.readText()?.trim()
         } catch (_: Exception) { null }
-        NativeBridge.nativeSetOption("PES17_FPS_LIMIT", fpsOverride?.takeIf { it.isNotEmpty() } ?: if (prefs.fpsLimit < 60) prefs.fpsLimit.toString() else "")
+        NativeBridge.nativeSetOption("PES17_FRAMEGEN", if (prefs.frameGeneration) "1" else "")
+        val fpsLimit = when {
+            prefs.frameGeneration -> "30"
+            prefs.fpsLimit < 60 -> prefs.fpsLimit.toString()
+            else -> ""
+        }
+        NativeBridge.nativeSetOption("PES17_FPS_LIMIT", fpsOverride?.takeIf { it.isNotEmpty() } ?: fpsLimit)
         NativeBridge.nativeSetOption(
             "PES17_ASPECT",
             if (prefs.widescreen) String.format(Locale.US, "%.4f", screenAspect()) else "",
