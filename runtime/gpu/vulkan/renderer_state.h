@@ -908,6 +908,8 @@ namespace vk::renderer::detail
     // what the window shows, by the frame before it. A run of black frames (a fade, a loading screen) is
     // let through from its second frame on. Returns true and the image and present index to show instead.
     bool BlackGuardOn();
+    // The arena's size and the device limits it has to fit, as text for a capture's engine report.
+    std::string ArenaReport();
     bool GuardReplacement(VkImage& image, uint32_t& presentIndex);
     FrameReadBacks PlanReadBacks();
     // Copies the finished frame out, inside its own command buffer.

@@ -639,6 +639,24 @@ namespace vk::renderer::detail
 
     bool BlackProbeEnabled() { return BlackProbeOn(); }
 
+    std::string ArenaReport()
+    {
+        if (!g.physical) return "renderer: not started\n";
+        VkPhysicalDeviceProperties properties{};
+        vkGetPhysicalDeviceProperties(g.physical, &properties);
+        char line[512];
+        std::snprintf(line, sizeof line,
+                      "renderer arena: %u MB, shadow %s (base %u MB), slot share %u KB x %u\n"
+                      "limits: maxStorageBufferRange %llu MB, maxUniformBufferRange %llu KB, maxPerStageDescriptorStorageBuffers %u,"
+                      " minStorageBufferOffsetAlignment %llu, robustBufferAccess in use unknown\n",
+                      g.arenaBytes >> 20, g.shadowBase ? "on" : "off", g.shadowBase >> 20, g.arenaSlotBytes / 1024, kFrameSlots,
+                      (unsigned long long)(properties.limits.maxStorageBufferRange >> 20),
+                      (unsigned long long)(properties.limits.maxUniformBufferRange >> 10),
+                      properties.limits.maxPerStageDescriptorStorageBuffers,
+                      (unsigned long long)properties.limits.minStorageBufferOffsetAlignment);
+        return line;
+    }
+
     bool BlackGuardOn()
     {
         static const bool on = env::Flag("PES17_BLACK_GUARD");

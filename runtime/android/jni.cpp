@@ -737,6 +737,7 @@ PES17_NATIVE(jstring, nativeEngineReport)(JNIEnv* env, jobject)
         if (files.empty()) text += "  (none)\n";
     }
     text += vk::PresenterReport();
+    text += vk::renderer::detail::ArenaReport();
     return FromString(env, text);
 }
 
