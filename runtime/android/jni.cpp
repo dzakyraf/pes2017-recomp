@@ -26,6 +26,7 @@
 #include "../gpu/vulkan/renderer_state.h"
 #include "../console.h"
 #include "../online/service.h"
+#include "../kernel/yield_backoff.h"
 
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
@@ -454,10 +455,12 @@ PES17_NATIVE(void, nativeRestoreMemory)(JNIEnv*, jobject)
 }
 
 // PowerManager's thermal status (THERMAL_STATUS_*): the dynamic scene scale lowers the picture
-// before the phone is throttled (PES17_DYNAMIC_SCALE, gpu/vulkan/dynamic_scale.h).
+// before the phone is throttled (PES17_DYNAMIC_SCALE, gpu/vulkan/dynamic_scale.h), and the
+// guest's spin waits sleep while it is hot (kernel/yield_backoff.h).
 PES17_NATIVE(void, nativeSetThermalStatus)(JNIEnv*, jobject, jint status)
 {
     vk::renderer::SetThermalStatus(int(status));
+    kernel::SetYieldHeat(int(status));
 }
 
 PES17_NATIVE(void, nativeSetRefreshRate)(JNIEnv*, jobject, jfloat hz)

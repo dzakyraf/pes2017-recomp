@@ -813,12 +813,15 @@ namespace
         // 1:1 is no anisotropy; 2:1 and up double each step. Only a sample
         // whose LOD comes from derivatives filters along them, which is the
         // hardware's rule too.
+        // PES17_MAX_ANISO caps what the title asks for (1 is none): each doubling
+        // is up to twice the texel fetches on the slanted pitch and stands.
+        static const float anisoCap = float(std::max<uint64_t>(1, env::Number("PES17_MAX_ANISO", 16)));
         const uint32_t aniso = (key >> 21) & 7;
-        if (aniso >= 2 && aniso <= 5 && vk::pipeline::MaxAnisotropy() > 1.0f)
+        const float maxAniso = std::min({ float(1u << (std::max(aniso, 1u) - 1)), vk::pipeline::MaxAnisotropy(), anisoCap });
+        if (aniso >= 2 && aniso <= 5 && maxAniso > 1.0f)
         {
             info.anisotropyEnable = VK_TRUE;
-            info.maxAnisotropy =
-                std::min(float(1u << (aniso - 1)), vk::pipeline::MaxAnisotropy());
+            info.maxAnisotropy = maxAniso;
         }
 
         VkSampler sampler = VK_NULL_HANDLE;

@@ -398,6 +398,11 @@ void android::perf::ApplyMemoryDefaults()
     // asked for, and the title asks for 2x and 4x by default.
     setenv("PES17_NO_MSAA", "1", 0);
 
+    // Anisotropic filtering at most 4:1 where the title asks for up to 16:1: the
+    // slanted pitch and stands are most of the frame, and every doubling is up to
+    // twice the texel fetches there, which is GPU time and so heat.
+    setenv("PES17_MAX_ANISO", "4", 0);
+
     if (!paths.external.empty())
     {
         const std::string shaders = paths.external + "/shader_cache.bin";
