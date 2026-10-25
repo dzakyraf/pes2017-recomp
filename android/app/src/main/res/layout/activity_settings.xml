@@ -259,6 +259,19 @@
                         android:layout_height="wrap_content"
                         android:text="@string/fsr_hint" />
 
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/black_guard"
+                        style="@style/SettingSwitch"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/black_guard" />
+
+                    <TextView
+                        style="@style/SettingHint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/black_guard_hint" />
+
                     <TextView
                         android:id="@+id/fsr_sharp_label"
                         style="@style/SettingLabel"

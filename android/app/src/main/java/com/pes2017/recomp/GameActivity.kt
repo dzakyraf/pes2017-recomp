@@ -745,6 +745,7 @@ class GameActivity : AppCompatActivity(), NativeListener {
             NativeBridge.nativeSetOption("PES17_SCALE", prefs.renderScale.toString())
         }
         NativeBridge.nativeSetOption("PES17_STUTTERS", "1")
+        NativeBridge.nativeSetOption("PES17_BLACK_GUARD", if (prefs.blackGuard) "1" else "")
         // The port's own switches, from Settings > Performance. Always given,
         // so a player's choice wins over the runtime's per-device defaults.
         NativeBridge.nativeSetOption("PES17_SCENE_SCALE", String.format(Locale.US, "%.4f", prefs.sceneScalePercent / 100.0))

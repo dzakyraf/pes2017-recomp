@@ -94,6 +94,11 @@ class Prefs(context: Context) {
         get() = store.getBoolean(KEY_CROWD, true)
         set(value) = store.edit().putBoolean(KEY_CROWD, value).apply()
 
+    /** Show the frame before a lone black frame instead of it (PES17_BLACK_GUARD); reads every frame back, so it costs speed. */
+    var blackGuard: Boolean
+        get() = store.getBoolean(KEY_BLACK_GUARD, false)
+        set(value) = store.edit().putBoolean(KEY_BLACK_GUARD, value).apply()
+
     /** FSR upscale and sharpen instead of a plain stretch (PES17_UPSCALER=fsr). */
     var fsr: Boolean
         get() = store.getBoolean(KEY_FSR, false)
@@ -334,6 +339,7 @@ class Prefs(context: Context) {
         private const val KEY_SCENE_SCALE = "sceneScale"
         private const val KEY_BALL_SCALE = "ballScale"
         private const val KEY_FSR = "fsr"
+        private const val KEY_BLACK_GUARD = "blackGuard"
         private const val KEY_DYNAMIC_SCALE = "dynamicScale"   // the first, single adaptive switch
         private const val KEY_HEAT_SCALE = "heatScale"
         private const val KEY_LOAD_SCALE = "loadScale"

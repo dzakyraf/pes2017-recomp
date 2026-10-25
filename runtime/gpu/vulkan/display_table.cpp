@@ -271,6 +271,10 @@ bool vk::display::Ready() { return g.pipeline != VK_NULL_HANDLE && !g.failed; }
 
 void vk::display::Apply(void* imageHandle, uint32_t width, uint32_t height, int layout)
 {
+    // PES17_NO_DISPLAY_TABLE=1: the frame goes out as the renderer made it, to tell whether the colour table's
+    // pass has anything to do with a bad frame.
+    static const bool off = env::Flag("PES17_NO_DISPLAY_TABLE");
+    if (off) return;
     if (!Ready() && !Initialise()) return;
     VkImage image = static_cast<VkImage>(imageHandle);
 

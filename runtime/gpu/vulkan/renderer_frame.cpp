@@ -433,7 +433,12 @@ namespace vk::renderer::detail
         g.presentIndex = (g.presentIndex + 1) % kPresentImages;
         ExamineFrame(worldDrawn, plan);
         const uint32_t width = g.presentWidth, height = g.presentHeight;
-        vk::record::Host([=] { vk::ShowImage(present, width, height, frame); });
+        // The black-frame guard may have the frame before this one shown in its place; that image is
+        // then not free for the renderer to draw over until this serial has been taken.
+        VkImage shown = present;
+        uint32_t shownIndex = 0;
+        if (BlackGuardOn() && GuardReplacement(shown, shownIndex)) g.presentSerial[shownIndex] = frame;
+        vk::record::Host([=] { vk::ShowImage(shown, width, height, frame); });
     }
 }
 

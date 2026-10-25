@@ -903,6 +903,12 @@ namespace vk::renderer::detail
     // after the blit and before the colour table. Recorded into the frame's command stream.
     void ProbeCopy(VkImage image, VkImageLayout layout, uint32_t width, uint32_t height, uint32_t which);
     bool BlackProbeEnabled();
+    // The black-frame guard (PES17_BLACK_GUARD, Settings > Black-frame guard): the frame is read back (as the
+    // probe does, which waits for the GPU) and a black frame that follows one that was not is replaced, in
+    // what the window shows, by the frame before it. A run of black frames (a fade, a loading screen) is
+    // let through from its second frame on. Returns true and the image and present index to show instead.
+    bool BlackGuardOn();
+    bool GuardReplacement(VkImage& image, uint32_t& presentIndex);
     FrameReadBacks PlanReadBacks();
     // Copies the finished frame out, inside its own command buffer.
     void RecordReadBack(VkImage present);

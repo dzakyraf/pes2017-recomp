@@ -639,6 +639,35 @@ namespace vk::renderer::detail
 
     bool BlackProbeEnabled() { return BlackProbeOn(); }
 
+    bool BlackGuardOn()
+    {
+        static const bool on = env::Flag("PES17_BLACK_GUARD");
+        return on;
+    }
+
+    namespace
+    {
+        struct Guard
+        {
+            bool lastBlack = false, replace = false;
+            VkImage lastGood = VK_NULL_HANDLE;
+            uint32_t lastGoodIndex = 0;
+            uint64_t replaced = 0;
+        } g_guard;
+    }
+
+    bool GuardReplacement(VkImage& image, uint32_t& presentIndex)
+    {
+        if (!g_guard.replace) return false;
+        g_guard.replace = false;
+        image = g_guard.lastGood;
+        presentIndex = g_guard.lastGoodIndex;
+        if (++g_guard.replaced <= 5 || g_guard.replaced % 500 == 0)
+            LOGW("guard: black frame at swap %llu shown as the frame before it (%llu so far)",
+                 (unsigned long long)g.frames, (unsigned long long)g_guard.replaced);
+        return true;
+    }
+
     namespace
     {
         struct ProbeBuffer
@@ -742,6 +771,17 @@ namespace vk::renderer::detail
             if (g_probeStage[i] == -2)
                 g_probeStage[i] = LooksBlack(g_probeBuffers[i].mapped, size_t(g_probeBuffers[i].used)) ? 1 : 0;
         }
+        if (BlackGuardOn())
+        {
+            g_guard.replace = black && !g_guard.lastBlack && g_guard.lastGood != VK_NULL_HANDLE;
+            g_guard.lastBlack = black;
+            if (!black)
+            {
+                g_guard.lastGood = g.present[g_probe.presentSlot % kPresentImages];
+                g_guard.lastGoodIndex = g_probe.presentSlot % kPresentImages;
+            }
+        }
+        if (!BlackProbeOn()) return;
         BlackProbe& p = g_probe;
         static uint64_t lastDraws = 0, lastResolves = 0;
         const uint64_t drawsThisFrame = g.drawsRecorded - lastDraws, resolvesThisFrame = g.resolves - lastResolves;
@@ -798,7 +838,7 @@ namespace vk::renderer::detail
         plan.dump = FrameDumpDirectory() && ((g.frames + 1) % FrameDumpEvery()) == 0 &&
                     FrameDumpDue();
         plan.keep = FlashFramesKept() > 0;
-        plan.probe = BlackProbeOn();
+        plan.probe = BlackProbeOn() || BlackGuardOn();
         return plan;
     }
 

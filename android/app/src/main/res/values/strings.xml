@@ -271,6 +271,8 @@
     <string name="crowd">Stadium crowd</string>
     <string name="crowd_hint">Off leaves the stands empty and spares the renderer and the GPU the crowd\u2019s drawing, which keeps the phone a little cooler in a match. The game still animates it. Takes effect the next time the game starts.</string>
     <string name="fsr">Sharper upscaling (FSR)</string>
+    <string name="black_guard">Black-frame guard (experimental)</string>
+    <string name="black_guard_hint">For phones where the picture flashes black on every third frame: a lone black frame is replaced by the frame before it. Reads every frame back, so it costs speed. Takes effect at the next start of the game.</string>
     <string name="fsr_hint">Uses an AMD FSR upscale and sharpen pass instead of a plain stretch. Costs a few frames on a hot phone.</string>
     <string name="fsr_sharp">Sharpness: %1$.1f</string>
     <string name="widescreen">Widescreen (fill the screen)</string>
