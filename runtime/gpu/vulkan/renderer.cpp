@@ -399,16 +399,16 @@ bool vk::renderer::Initialise()
     uint32_t wanted = uint32_t(env::Number("PES17_ARENA_MB", kArenaWanted >> 20)) << 20;
     bool withShadow = !noShadow;
     // The arena (and the shadow behind it) is one storage buffer bound whole, and a shader reads nothing
-    // past maxStorageBufferRange of it: what lies beyond reads as zero. A frame slot there is a frame of
-    // zeros -- a black frame every third one, with the slots a third of the arena each. So the buffer is
-    // never made larger than the device's range; the shadow goes first, then the arena shrinks.
-    // PES17_IGNORE_STORAGE_RANGE=1 skips the check.
+    // past maxStorageBufferRange of it: what lies beyond reads as zero. A frame slot there would be a frame
+    // of zeros, so the arena itself is never larger than the device's range (the shadow behind it may run
+    // past: the S20 FE's range is 512 MB against 256 + 512, and it draws correctly). PES17_IGNORE_STORAGE_RANGE=1
+    // skips the check.
     const VkDeviceSize storageRange = env::Flag("PES17_IGNORE_STORAGE_RANGE") ? ~VkDeviceSize(0) : properties.limits.maxStorageBufferRange;
     for (; wanted >= kArenaLeast; withShadow ? (void)(withShadow = false) : (void)(wanted /= 2))
     {
         VkBufferCreateInfo buffer{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
         buffer.size = VkDeviceSize(wanted) + (withShadow ? shadowBytes : 0);
-        if (buffer.size > storageRange) continue;
+        if (VkDeviceSize(wanted) > storageRange) continue;
         buffer.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                        VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
         if (vkCreateBuffer(g.device, &buffer, nullptr, &g.arena) != VK_SUCCESS) continue;
