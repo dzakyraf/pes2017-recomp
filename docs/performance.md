@@ -39,6 +39,39 @@ is the same input from game start to a match. Tools added for it:
   popping is the game's own sequence of loads; the visible hitching and missing draws of a cold
   start came from pipeline builds (see the bundled shader seed in shaders.md).
 
+## Heat cuts added 2026-10-26 (S20 FE)
+
+Each trades a little quality or latency for less work, since heat is what limits a match. None
+has had its effect on temperature measured yet (see the test below).
+
+- **Spin waits sleep when the frame has room** (`runtime/kernel/yield_backoff.h`). A quarter of
+  the CPU went to the guest's yield spin loops. With `PES17_YIELD_SLEEP_US` unset, they now sleep
+  up to 100 us once they spin, but only under an FPS limit below 60 (the spin only waits out the
+  limiter) or while Android reports thermal status MODERATE or worse (from the thermal listener,
+  `nativeSetThermalStatus`). At 60 on a cool phone they stay plain yields, since sleeping there
+  cost about 6 fps. An explicit `PES17_YIELD_SLEEP_US`, or `files/yield_tuning`, fixes the cap;
+  0 turns it off. The game log's `yield:` line says which mode is on. The S20 FE still has a
+  `files/yield_tuning` of `0 32` from earlier measuring, which keeps this off there.
+- **Anisotropic filtering capped at 4x on Android** (`PES17_MAX_ANISO`, `texture_cache.cpp`,
+  default set in `android/perf.cpp`). The title asks for up to 16x; the slanted pitch and stands
+  are most of the frame. The far end of the pitch is a little softer. `PES17_MAX_ANISO=16` gives
+  the old look, `1` the cheapest.
+- **Frame generation** (`PES17_FRAMEGEN=1`, Settings > Graphics > Frame generation). The game
+  draws 30 frames a second and the window shows a frame made from each two real ones between
+  them, so the 60 Hz screen stays smooth for about half the guest and scene work. The made
+  frame costs a few compute passes (0.23 ms on an M3 Pro; not timed on a phone yet) and adds one
+  real frame of latency. Pitch, camera and players move at 60, and so does the ball: the
+  renderer reads its exact position from its draw. What the motion search cannot follow (fast
+  limbs, the ball's shadow) is shown whole at 30. The S20 FE showed 61 fps on screen with the
+  game at 30 fps, and the user found the ball smooth. Design, results and what was dropped:
+  [frame-generation.md](frame-generation.md).
+
+The test still to run, on a cool, unplugged phone with the `play` macro, about 5 minutes in a
+match each, temperatures from `dumpsys thermalservice` (SKIN, AP) every 10 s: 60 fps; 30 fps;
+30 fps with frame generation. 30 against 60 says what halving the work saves; frame generation
+against plain 30 says what the made frames cost. Note: the S20 FE dropped off USB three times
+when hot and under `adb shell screenrecord`; record with the phone's own recorder instead.
+
 ## Leads not tried yet (workload and heat)
 
 - **Sun shadow map at a lower resolution.** The shadow map is one 1024x2048 depth surface holding two
@@ -50,5 +83,6 @@ is the same input from game start to a match. Tools added for it:
   title's own filtering: its PCF offsets and depth bias are in 1024-texel units, so shadows get softer
   and may shimmer or acne. Check with a CAPTURE screenshot and `files/gpu_timing` (shadow passes'
   ms) before keeping it; a switch such as `PES17_SHADOW_SCALE=0.5` keeps it optional.
-- **Frame generation:** render 30, show 60. See [frame-generation.md](frame-generation.md).
+- **The ball's shadow under frame generation:** it is held at 30 while the ball moves at 60. The
+  renderer could find the shadow's draw the way it finds the ball's and place it the same way.
 
