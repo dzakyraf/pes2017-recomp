@@ -1073,6 +1073,8 @@ void vk::renderer::Swap(uint32_t frontBuffer)
     // resolve's to the window thread, keeps the next frame from overwriting it.
     const uint32_t index = g.presentIndex;
     VkImage present = g.present[index];
+    NoteSwapSource(found->second.newest,
+                   frame.writtenFrame == UINT64_MAX ? -1 : int64_t(g.frames) - int64_t(frame.writtenFrame), index);
     vk::WaitUntilTaken(g.presentSerial[index]);
 
     RecordBarrier(frame.image, VK_IMAGE_ASPECT_COLOR_BIT,

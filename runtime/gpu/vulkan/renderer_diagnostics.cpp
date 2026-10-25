@@ -3,6 +3,7 @@
 #include <cmath>
 #include <unordered_map>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <cstring>
 #include "renderer_state.h"
 #ifdef PES17_ANDROID
@@ -598,6 +599,81 @@ namespace vk::renderer::detail
         }
     }
 
+    // ---- the black-frame probe (see NoteSwapSource) ----
+    namespace
+    {
+        struct BlackProbe
+        {
+            uint32_t ringSlot = 0, presentSlot = 0;
+            int64_t age = 0;
+            uint64_t frames = 0, black = 0, loggedBlack = 0;
+            uint64_t blackByRing[kFrameSlots]{}, framesByRing[kFrameSlots]{};
+            uint64_t blackByPresent[kPresentImages]{};
+            uint64_t blackByAge[4]{}, framesByAge[4]{};   // age -1 (never), 0, 1, 2 or more
+            uint64_t blackByMod3[3]{};
+        } g_probe;
+
+        bool BlackProbeOn()
+        {
+#ifdef PES17_ANDROID
+            static std::atomic<uint32_t> asked{ 0 };
+            static std::atomic<bool> on{ false };
+            if (asked++ % 30 == 0)
+                on = access((android::GetPaths().external + "/black_probe").c_str(), F_OK) == 0;
+            return on;
+#else
+            static const bool on = env::Flag("PES17_BLACK_PROBE");
+            return on;
+#endif
+        }
+
+        uint32_t AgeBucket(int64_t age) { return age < 0 ? 0 : age == 0 ? 1 : age == 1 ? 2 : 3; }
+    }
+
+    void NoteSwapSource(uint32_t ringSlot, int64_t age, uint32_t presentSlot)
+    {
+        g_probe.ringSlot = ringSlot; g_probe.age = age; g_probe.presentSlot = presentSlot;
+    }
+
+    // `frame` is the finished present image, RGBA. Black when a spread of samples has nothing above 6.
+    void CountBlackFrame(const std::vector<uint8_t>& frame)
+    {
+        bool black = true;
+        const size_t pixels = frame.size() / 4;
+        for (size_t i = 0; i < pixels && black; i += 211)
+            if (frame[i * 4] > 6 || frame[i * 4 + 1] > 6 || frame[i * 4 + 2] > 6) black = false;
+        BlackProbe& p = g_probe;
+        p.frames++;
+        p.framesByRing[p.ringSlot % kFrameSlots]++;
+        p.framesByAge[AgeBucket(p.age)]++;
+        if (black)
+        {
+            p.black++;
+            p.blackByRing[p.ringSlot % kFrameSlots]++;
+            p.blackByAge[AgeBucket(p.age)]++;
+            p.blackByPresent[p.presentSlot % kPresentImages]++;
+            p.blackByMod3[g.frames % 3]++;
+            if (p.loggedBlack++ < 60)
+                LOGW("probe: black frame %llu (swap %llu): resolve ring slot %u, source last resolved %lld frames ago,"
+                     " present image %u, frame mod 3 = %llu", (unsigned long long)p.black,
+                     (unsigned long long)g.frames, p.ringSlot, (long long)p.age, p.presentSlot,
+                     (unsigned long long)(g.frames % 3));
+        }
+        if (p.frames % 300 == 0)
+            LOGI("probe: %llu of the last %llu frames black; by ring slot %llu/%llu/%llu of %llu/%llu/%llu; by source age"
+                 " (never/0/1/2+) %llu/%llu/%llu/%llu of %llu/%llu/%llu/%llu; by present image %llu/%llu/%llu/%llu;"
+                 " by frame mod 3 %llu/%llu/%llu",
+                 (unsigned long long)p.black, (unsigned long long)p.frames,
+                 (unsigned long long)p.blackByRing[0], (unsigned long long)p.blackByRing[1], (unsigned long long)p.blackByRing[2],
+                 (unsigned long long)p.framesByRing[0], (unsigned long long)p.framesByRing[1], (unsigned long long)p.framesByRing[2],
+                 (unsigned long long)p.blackByAge[0], (unsigned long long)p.blackByAge[1], (unsigned long long)p.blackByAge[2],
+                 (unsigned long long)p.blackByAge[3], (unsigned long long)p.framesByAge[0], (unsigned long long)p.framesByAge[1],
+                 (unsigned long long)p.framesByAge[2], (unsigned long long)p.framesByAge[3],
+                 (unsigned long long)p.blackByPresent[0], (unsigned long long)p.blackByPresent[1],
+                 (unsigned long long)p.blackByPresent[2], (unsigned long long)p.blackByPresent[3],
+                 (unsigned long long)p.blackByMod3[0], (unsigned long long)p.blackByMod3[1], (unsigned long long)p.blackByMod3[2]);
+    }
+
     FrameReadBacks PlanReadBacks()
     {
         // The frame and target dumps (PES17_DUMP_FRAMES, PES17_DUMP_TARGETS) are in
@@ -606,6 +682,7 @@ namespace vk::renderer::detail
         plan.dump = FrameDumpDirectory() && ((g.frames + 1) % FrameDumpEvery()) == 0 &&
                     FrameDumpDue();
         plan.keep = FlashFramesKept() > 0;
+        plan.probe = BlackProbeOn();
         return plan;
     }
 
@@ -636,6 +713,8 @@ namespace vk::renderer::detail
         if (plan.Any() && g.readBackMapped)
             frame.assign(g.readBackMapped,
                          g.readBackMapped + size_t(g.presentWidth) * g.presentHeight * 4);
+
+        if (plan.probe && !frame.empty()) CountBlackFrame(frame);
 
         static const bool onlyWorld = env::Flag("PES17_DUMP_WORLD_FRAMES");
         static const bool targetsToo = env::Flag("PES17_DUMP_TARGETS");

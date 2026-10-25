@@ -889,9 +889,15 @@ namespace vk::renderer::detail
     // because a frame read back has to be waited for.
     struct FrameReadBacks
     {
-        bool dump = false, keep = false;
-        bool Any() const { return dump || keep; }
+        bool dump = false, keep = false, probe = false;
+        bool Any() const { return dump || keep || probe; }
     };
+    // The black-frame probe (`files/black_probe`, which a CAPTURE creates): every presented frame is read
+    // back and counted black or not, with which copy of the resolve ring it came from and how old that copy
+    // was, so a frame that flashes black says where it went wrong. Slows the game while it is on.
+    // NoteSwapSource is told, just before the frame is finished, the ring slot the swap presents, how many
+    // frames ago that slot was last resolved (-1: never) and the present image used.
+    void NoteSwapSource(uint32_t ringSlot, int64_t age, uint32_t presentSlot);
     FrameReadBacks PlanReadBacks();
     // Copies the finished frame out, inside its own command buffer.
     void RecordReadBack(VkImage present);

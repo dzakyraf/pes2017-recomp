@@ -92,6 +92,10 @@ class CaptureSession(private val activity: Activity, private val prefs: Prefs) {
         logOffset = File(base, "game.log").let { if (it.isFile) it.length() else 0L }
         folder = File(base, "captures/pending").apply { deleteRecursively(); mkdirs() }
         File(folder, "frames").mkdirs()
+        // The renderer's black-frame probe runs while a capture does (it reads every frame back, which
+        // costs a little speed): game.log gets "probe:" lines saying how many frames came out black and
+        // from which slot of the renderer's rings.
+        try { File(base, "black_probe").writeText("1") } catch (_: Throwable) { }
         Log.i(TAG, "capture started")
         // The renderer's view of the moments before the start, and a frame.
         requestRendererCapture()
@@ -110,6 +114,7 @@ class CaptureSession(private val activity: Activity, private val prefs: Prefs) {
         handler.removeCallbacks(tick)
         sample()
         frameSurface = null
+        // Left on until the log is written (below), so the last frames are counted.
         requestRendererCapture()
         val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date(startedWall))
         val clean = name.trim().map { if (it.isLetterOrDigit() || it == '-' || it == '_') it else '_' }
@@ -124,6 +129,7 @@ class CaptureSession(private val activity: Activity, private val prefs: Prefs) {
                     folder.renameTo(finalFolder)
                     val target = if (finalFolder.isDirectory) finalFolder else folder
                     png?.let { copyBitmap(it, File(target, "screenshot.png")) }
+                    try { File(base, "black_probe").delete() } catch (_: Throwable) { }
                     writeFiles(target, clean, note, events)
                     activity.runOnUiThread { done(target, "saved") }
                 } catch (error: Throwable) {
@@ -135,6 +141,7 @@ class CaptureSession(private val activity: Activity, private val prefs: Prefs) {
     }
 
     fun cancel() {
+        try { File(base, "black_probe").delete() } catch (_: Throwable) { }
         active = false
         handler.removeCallbacks(tick)
         Macro.stopRecording(activity, "last")
