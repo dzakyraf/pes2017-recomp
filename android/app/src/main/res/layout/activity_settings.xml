@@ -267,6 +267,7 @@
                         android:text="@string/black_guard" />
 
                     <TextView
+                        android:id="@+id/black_guard_hint"
                         style="@style/SettingHint"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -643,12 +644,15 @@
                 </LinearLayout>
 
                 <TextView
+                    android:id="@+id/experiments_heading"
                     style="@style/SectionHeading"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/section_experiments" />
 
-                <LinearLayout style="@style/SettingGroup">
+                <LinearLayout
+                    android:id="@+id/experiments_group"
+                    style="@style/SettingGroup">
 
                     <TextView
                         style="@style/SettingHint"

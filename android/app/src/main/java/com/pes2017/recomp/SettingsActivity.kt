@@ -122,7 +122,13 @@ class SettingsActivity : AppCompatActivity() {
         switch(R.id.prewarm_all, prefs.prewarmAllShaders) { prefs.prewarmAllShaders = it }
         switch(R.id.gamepad_p2, prefs.padAsPlayer2) { prefs.padAsPlayer2 = it }
         // The test options only exist for someone who turned the developer tools on.
-        val testing = listOf<android.view.View>(findViewById(R.id.testing_heading), findViewById(R.id.testing_group))
+        // The bug-hunting experiments (arena size, render path, the black-frame guard) are the same: hidden
+        // until then, and all off by default.
+        val testing = listOf<android.view.View>(
+            findViewById(R.id.testing_heading), findViewById(R.id.testing_group),
+            findViewById(R.id.experiments_heading), findViewById(R.id.experiments_group),
+            findViewById(R.id.black_guard), findViewById(R.id.black_guard_hint),
+        )
         fun showTesting(on: Boolean) = testing.forEach { it.visibility = if (on) android.view.View.VISIBLE else android.view.View.GONE }
         showTesting(prefs.developerTools)
         switch(R.id.developer_tools, prefs.developerTools) { prefs.developerTools = it; showTesting(it) }
