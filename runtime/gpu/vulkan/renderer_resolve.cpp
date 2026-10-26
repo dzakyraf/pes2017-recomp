@@ -1073,12 +1073,20 @@ void vk::renderer::Swap(uint32_t frontBuffer)
     // resolve's to the window thread, keeps the next frame from overwriting it.
     const uint32_t index = g.presentIndex;
     VkImage present = g.present[index];
+    NoteSwapSource(found->second.newest,
+                   frame.writtenFrame == UINT64_MAX ? -1 : int64_t(g.frames) - int64_t(frame.writtenFrame), index);
     vk::WaitUntilTaken(g.presentSerial[index]);
 
     RecordBarrier(frame.image, VK_IMAGE_ASPECT_COLOR_BIT,
                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                   VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT,
                   kShaderStages, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    const bool probing = BlackProbeEnabled();
+    if (probing)
+    {
+        const VkOffset3D size = Scaled(int32_t(frame.width), int32_t(frame.height), 1, frame.scale);
+        ProbeCopy(frame.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, uint32_t(size.x), uint32_t(size.y), 0);
+    }
     // After the window's copy out of it, and the dumps' and the display
     // table's work on it, the last time round.
     RecordBarrier(present, VK_IMAGE_ASPECT_COLOR_BIT,
@@ -1097,6 +1105,7 @@ void vk::renderer::Swap(uint32_t frontBuffer)
         vkCmdBlitImage(command, frameImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                        present, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
     });
+    if (probing) ProbeCopy(present, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, g.presentWidth, g.presentHeight, 1);
     RecordBarrier(frame.image, VK_IMAGE_ASPECT_COLOR_BIT,
                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                   VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,

@@ -398,10 +398,17 @@ bool vk::renderer::Initialise()
     const uint32_t shadowBytes = guest::kPhysicalEnd - guest::kPhysicalBase;
     uint32_t wanted = uint32_t(env::Number("PES17_ARENA_MB", kArenaWanted >> 20)) << 20;
     bool withShadow = !noShadow;
+    // The arena (and the shadow behind it) is one storage buffer bound whole, and a shader reads nothing
+    // past maxStorageBufferRange of it: what lies beyond reads as zero. A frame slot there would be a frame
+    // of zeros, so the arena itself is never larger than the device's range (the shadow behind it may run
+    // past: the S20 FE's range is 512 MB against 256 + 512, and it draws correctly). PES17_IGNORE_STORAGE_RANGE=1
+    // skips the check.
+    const VkDeviceSize storageRange = env::Flag("PES17_IGNORE_STORAGE_RANGE") ? ~VkDeviceSize(0) : properties.limits.maxStorageBufferRange;
     for (; wanted >= kArenaLeast; withShadow ? (void)(withShadow = false) : (void)(wanted /= 2))
     {
         VkBufferCreateInfo buffer{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
         buffer.size = VkDeviceSize(wanted) + (withShadow ? shadowBytes : 0);
+        if (VkDeviceSize(wanted) > storageRange) continue;
         buffer.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                        VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
         if (vkCreateBuffer(g.device, &buffer, nullptr, &g.arena) != VK_SUCCESS) continue;
@@ -448,6 +455,10 @@ bool vk::renderer::Initialise()
     g.command = g.slots[g.slot].buffers[0];
     g.arenaBase = g.slots[g.slot].arenaBase;
     LOGI("renderer: %u frame slots of %u KB of arena each", kFrameSlots, g.arenaSlotBytes / 1024);
+    LOGI("renderer: arena %u MB, shadow %s, buffer %llu MB against maxStorageBufferRange %llu MB",
+         g.arenaBytes >> 20, g.shadowBase ? "on" : "off",
+         (unsigned long long)((VkDeviceSize(g.arenaBytes) + (g.shadowBase ? shadowBytes : 0)) >> 20),
+         (unsigned long long)(properties.limits.maxStorageBufferRange >> 20));
 
     // Before any command is recorded: the recorder thread only reads these.
     // On Vulkan 1.3 core devices (Mali, Tensor, etc.), the commands may be exported

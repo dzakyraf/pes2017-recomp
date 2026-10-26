@@ -221,6 +221,18 @@
     <string name="section_thermal">Heat &amp; battery</string>
     <string name="section_rendering">Rendering</string>
     <string name="section_memory">Memory &amp; loading</string>
+    <string name="section_experiments">Experiments (for bug hunting)</string>
+    <string name="experiments_hint">For phones with a picture bug, such as a black flash or black players. Change one at a time, restart the game, play a match, and capture it (CAPTURE) with what you saw. Put it back if it does not help. Takes effect at the next start.</string>
+    <string name="arena_hint">Frame arena size in MB. Phones with a lot of memory use a large one by default; a smaller one is what the phones that look right use.</string>
+    <string name="arena_auto">Auto</string>
+    <string name="exp_legacy">Classic render path</string>
+    <string name="exp_legacy_hint">Draws with render passes and baked state, as older phones do, instead of dynamic rendering.</string>
+    <string name="exp_no_table">Skip the colour-table pass</string>
+    <string name="exp_no_table_hint">Shows the frame without the game\'s display colour table.</string>
+    <string name="exp_bc_hw">Hardware texture decoding on Adreno</string>
+    <string name="exp_bc_hw_hint">Lets the GPU decode BC textures itself instead of the CPU. Off by default on Qualcomm because of an old flicker.</string>
+    <string name="exp_dynamic_depth">Per-draw depth state on Adreno</string>
+    <string name="exp_dynamic_depth_hint">Sets depth, stencil and culling per draw instead of baking them into pipelines (Qualcomm default is baked).</string>
     <string name="section_testing">Testing</string>
     <string name="section_developer">Developer</string>
     <string name="developer_tools">Developer tools</string>
@@ -271,6 +283,8 @@
     <string name="crowd">Stadium crowd</string>
     <string name="crowd_hint">Off leaves the stands empty and spares the renderer and the GPU the crowd\u2019s drawing, which keeps the phone a little cooler in a match. The game still animates it. Takes effect the next time the game starts.</string>
     <string name="fsr">Sharper upscaling (FSR)</string>
+    <string name="black_guard">Black-frame guard (experimental)</string>
+    <string name="black_guard_hint">For phones where the picture flashes black on every third frame: a lone black frame is replaced by the frame before it. Reads every frame back, so it costs speed. Takes effect at the next start of the game.</string>
     <string name="fsr_hint">Uses an AMD FSR upscale and sharpen pass instead of a plain stretch. Costs a few frames on a hot phone.</string>
     <string name="frame_gen">Frame generation (30 to 60)</string>
     <string name="frame_gen_hint">The game draws 30 frames a second and a frame made between each two fills the gaps, so the 60 Hz screen stays smooth for about half the work and heat. Fast movement can look soft. Sets the 30 fps limit while on.</string>

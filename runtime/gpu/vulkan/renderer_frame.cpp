@@ -438,7 +438,12 @@ namespace vk::renderer::detail
         if (vk::framegen::WantsBall())
             vk::framegen::NoteBall(frame, g.frameBall.seen, g.frameBall.x, g.frameBall.y, g.frameBall.radius);
         g.frameBall = {};
-        vk::record::Host([=] { vk::ShowImage(present, width, height, frame); });
+        // The black-frame guard may have the frame before this one shown in its place; that image is
+        // then not free for the renderer to draw over until this serial has been taken.
+        VkImage shown = present;
+        uint32_t shownIndex = 0;
+        if (BlackGuardOn() && GuardReplacement(shown, shownIndex)) g.presentSerial[shownIndex] = frame;
+        vk::record::Host([=] { vk::ShowImage(shown, width, height, frame); });
     }
 }
 

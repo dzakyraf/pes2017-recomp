@@ -891,9 +891,28 @@ namespace vk::renderer::detail
     // because a frame read back has to be waited for.
     struct FrameReadBacks
     {
-        bool dump = false, keep = false;
-        bool Any() const { return dump || keep; }
+        bool dump = false, keep = false, probe = false;
+        bool Any() const { return dump || keep || probe; }
     };
+    // The black-frame probe (`files/black_probe`, which a CAPTURE creates): every presented frame is read
+    // back and counted black or not, with which copy of the resolve ring it came from and how old that copy
+    // was, so a frame that flashes black says where it went wrong. Slows the game while it is on.
+    // NoteSwapSource is told, just before the frame is finished, the ring slot the swap presents, how many
+    // frames ago that slot was last resolved (-1: never) and the present image used.
+    void NoteSwapSource(uint32_t ringSlot, int64_t age, uint32_t presentSlot);
+    // While the probe is on, copies `image` (in `layout`, left in it) of width x height texels to a host
+    // buffer for the probe: which = 0 the frame the swap presents (before the blit), 1 the present image
+    // after the blit and before the colour table. Recorded into the frame's command stream.
+    void ProbeCopy(VkImage image, VkImageLayout layout, uint32_t width, uint32_t height, uint32_t which);
+    bool BlackProbeEnabled();
+    // The black-frame guard (PES17_BLACK_GUARD, Settings > Black-frame guard): the frame is read back (as the
+    // probe does, which waits for the GPU) and a black frame that follows one that was not is replaced, in
+    // what the window shows, by the frame before it. A run of black frames (a fade, a loading screen) is
+    // let through from its second frame on. Returns true and the image and present index to show instead.
+    bool BlackGuardOn();
+    // The arena's size and the device limits it has to fit, as text for a capture's engine report.
+    std::string ArenaReport();
+    bool GuardReplacement(VkImage& image, uint32_t& presentIndex);
     FrameReadBacks PlanReadBacks();
     // Copies the finished frame out, inside its own command buffer.
     void RecordReadBack(VkImage present);
