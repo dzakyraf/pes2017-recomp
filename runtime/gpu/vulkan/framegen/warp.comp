@@ -39,6 +39,7 @@ layout(push_constant) uniform Constants
     float ballRadius;       // 0 when the ball is not known in both frames
     vec2 ballPrevious;      // its centre in the previous frame and in the current one, in the frame's pixels
     vec2 ballCurrent;
+    float menu;             // 1 in a menu: no motion is trusted, only what stays put is kept
 } pc;
 
 // No motion has to be clearly better than the field's vector: it wins where the interface sits
@@ -69,7 +70,8 @@ void main()
     const vec2 centre = vec2(p) + 0.5;
 
     // The fields hold their level's pixels; the scales turn them into the frame's.
-    const vec2 v = texture(field, centre / pc.blockPixels / vec2(pc.grid)).xy * pc.lumaScale;
+    const vec2 v = pc.menu > 0.5 ? vec2(0.0)
+        : texture(field, centre / pc.blockPixels / vec2(pc.grid)).xy * pc.lumaScale;
     float best = Try(centre, v);
     vec3 a = g_a, b = g_b;
     const float still = Try(centre, vec2(0.0)) + kStillBias;
@@ -78,7 +80,7 @@ void main()
     vec3 held = a;
 
     const vec2 camera = texture(coarseField, centre * pc.coarseTexel).xy * pc.coarseScale;
-    if (distance(v, camera) < kFollowsCamera)
+    if (pc.menu < 0.5 && distance(v, camera) < kFollowsCamera)
     {
         const float e = Try(centre, camera);
         const float h = smoothstep(kAgree, kDisagree, e);

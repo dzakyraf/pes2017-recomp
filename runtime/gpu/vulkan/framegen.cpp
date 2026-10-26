@@ -43,13 +43,15 @@ namespace
     constexpr float kSmoothCost = 0.02f;
 
     enum Pass { kDownsample, kSearch, kSmooth, kWarp, kPasses };
-    constexpr uint32_t kPushBytes = 64;
+    constexpr uint32_t kPushBytes = 80;
 
     // The ball, as the renderer saw it in each recent frame (NoteBall), by serial.
     struct Ball { uint64_t serial = 0; bool seen = false; float x = 0, y = 0, radius = 0; };
     constexpr uint32_t kBalls = 8;
     // A ball that moved further than this between two real frames went somewhere else (a cut).
-    constexpr float kBallReach = 160.0f;
+    constexpr float kBallReach = 400.0f;
+    // Real frames (about 3 s at 30) without the ball before the picture counts as a menu, not a match.
+    constexpr uint32_t kMenuFrames = 90;
 
     struct Image
     {
@@ -95,6 +97,7 @@ namespace
         std::mutex ballLock;
         Ball balls[kBalls];
         Ball previousBall;             // the ball of history[parity] once the next frame comes
+        uint32_t framesWithoutBall = 0; // real frames since the renderer last saw the ball
     } g;
 
     Ball BallOf(uint64_t serial)
@@ -400,6 +403,11 @@ vk::framegen::Result vk::framegen::Record(VkDevice device, VkPhysicalDevice phys
     if (g.reset.exchange(false)) g.havePrevious = g.fieldValid = false;
 
     // A frame long after the last -- a pause, a load, the window gone and back -- is not paired with it.
+    // Menus and their transitions (slides, fades, wipes) have no ball and no camera motion for the
+    // search to follow; warping them tears the interface. Without the ball in the last few seconds
+    // of real frames the made frame uses no motion at all: still parts are kept, what changes is held.
+    g.framesWithoutBall = ball.seen ? 0 : std::min(g.framesWithoutBall + 1, 1000u);
+    const bool inMatch = g.framesWithoutBall < kMenuFrames;
     const bool pair = g.havePrevious && nowNs - g.previousAtNs < int64_t(5.0 * displayPeriodNs);
     g.parity ^= 1;
     const uint32_t p = g.parity;
@@ -473,12 +481,12 @@ vk::framegen::Result vk::framegen::Record(VkDevice device, VkPhysicalDevice phys
         const bool ballKnown = previousBall.seen && ball.seen &&
                                std::hypot(ball.x - previousBall.x, ball.y - previousBall.y) < kBallReach;
         struct { int32_t size[2]; float texel[2]; int32_t grid[2]; float blockPixels, lumaScale; float coarseTexel[2];
-                 float coarseScale, ballRadius; float ballPrevious[2], ballCurrent[2]; } warp{
+                 float coarseScale, ballRadius; float ballPrevious[2], ballCurrent[2]; float menu, pad; } warp{
             { int32_t(width), int32_t(height) }, { 1.0f / float(width), 1.0f / float(height) },
             { int32_t(fine.gridWidth), int32_t(fine.gridHeight) }, float(kBlock * kLumaDivisor), float(kLumaDivisor),
             { 1.0f / float(coarse.gridWidth * kBlock * coarsePixels), 1.0f / float(coarse.gridHeight * kBlock * coarsePixels) },
             float(coarsePixels), ballKnown ? std::max(ball.radius, previousBall.radius) : 0.0f,
-            { previousBall.x, previousBall.y }, { ball.x, ball.y } };
+            { previousBall.x, previousBall.y }, { ball.x, ball.y }, inMatch ? 0.0f : 1.0f, 0.0f };
         Dispatch(commands, kWarp, g.warpSet[p], &warp, sizeof(warp), width, height);
         Transition(commands, g.made, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         result.made = g.made.image;
