@@ -712,7 +712,9 @@ namespace
 
         VkDescriptorSetLayoutBinding memory{};
         memory.binding = bindings::kArenaBinding;
-        memory.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        // Dynamic: bound with the slot's offset into the arena, so the shaders see one slot's share as the
+        // whole buffer and the arena may be larger than maxStorageBufferRange (which is 128 MB on an Adreno 735).
+        memory.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
         memory.descriptorCount = 1;
         memory.stageFlags = both;
 

@@ -646,10 +646,10 @@ namespace vk::renderer::detail
         vkGetPhysicalDeviceProperties(g.physical, &properties);
         char line[512];
         std::snprintf(line, sizeof line,
-                      "renderer arena: %u MB, shadow %s (base %u MB), slot share %u KB x %u\n"
+                      "renderer arena: %u MB, storage window %u MB (dynamic offset per slot), shadow %s (base %u MB), slot share %u KB x %u\n"
                       "limits: maxStorageBufferRange %llu MB, maxUniformBufferRange %llu KB, maxPerStageDescriptorStorageBuffers %u,"
                       " minStorageBufferOffsetAlignment %llu, robustBufferAccess in use unknown\n",
-                      g.arenaBytes >> 20, g.shadowBase ? "on" : "off", g.shadowBase >> 20, g.arenaSlotBytes / 1024, kFrameSlots,
+                      g.arenaBytes >> 20, g.arenaWindow >> 20, g.shadowBase ? "on" : "off", g.shadowBase >> 20, g.arenaSlotBytes / 1024, kFrameSlots,
                       (unsigned long long)(properties.limits.maxStorageBufferRange >> 20),
                       (unsigned long long)(properties.limits.maxUniformBufferRange >> 10),
                       properties.limits.maxPerStageDescriptorStorageBuffers,

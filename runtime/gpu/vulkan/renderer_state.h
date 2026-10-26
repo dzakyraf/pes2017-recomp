@@ -361,6 +361,7 @@ namespace vk::renderer::detail
         uint64_t worldFrames = 0, worldStreak = 0;
         std::chrono::steady_clock::time_point firstWorldAt, lastWorldAt, streakFrom;
         uint32_t arenaSlotBytes = 0;   // one slot's share of it
+        uint32_t arenaWindow = 0;      // the storage descriptor's range: a slot's whole share, <= maxStorageBufferRange
         uint32_t arenaBase = 0;        // where the current slot's share starts
         uint32_t arenaUsed = 0;        // and how much of that share is spent
 

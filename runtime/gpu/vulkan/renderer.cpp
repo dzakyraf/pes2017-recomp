@@ -384,31 +384,20 @@ bool vk::renderer::Initialise()
     // Ask for the whole thing and settle for what the device will give: on a
     // shared-memory part this is system RAM, and refusing to start because the
     // largest size did not fit would be the wrong answer.
-    //
-    // Behind the arena, when there is room, the shadow of guest physical
-    // memory: vertex data a draw reads from pages the title has not written
-    // since they were copied is read there instead of being copied again (see
-    // gpu/memory_watch.h). One buffer, so set 2 reaches both and a fetch
-    // constant says which by its address alone.
-    // Read through env::, not diag::, because the shadow is 512 MB of resident
-    // memory and a release build cannot see a diagnostics switch (diag::Flag is
-    // a constant false there): on the device whose memory is shortest the
-    // switch would have done nothing at all.
-    static const bool noShadow = env::Flag("PES17_NO_SHADOW");
-    const uint32_t shadowBytes = guest::kPhysicalEnd - guest::kPhysicalBase;
+    // The arena is one buffer, but a shader sees one slot's share of it through a dynamic storage descriptor,
+    // and what lies past maxStorageBufferRange of a binding reads as zero. So the arena may be as large as
+    // three ranges, and no more: a slot's share (a third of it) must fit the range. The Adreno 735's is 128 MB,
+    // so its arena stays 384 MB. The guest-memory shadow that used to sit behind the arena is gone: it was
+    // read only with files/vertex_shadow (off, it makes players draw wrong), and cost 512 MB of memory. Before
+    // this the arena itself was held to the range, which kept it at 96 MB there and the frame 40% slower.
+    // PES17_IGNORE_STORAGE_RANGE=1 skips the check.
     uint32_t wanted = uint32_t(env::Number("PES17_ARENA_MB", kArenaWanted >> 20)) << 20;
-    bool withShadow = !noShadow;
-    // The arena (and the shadow behind it) is one storage buffer bound whole, and a shader reads nothing
-    // past maxStorageBufferRange of it: what lies beyond reads as zero. A frame slot there would be a frame
-    // of zeros, so the arena itself is never larger than the device's range (the shadow behind it may run
-    // past: the S20 FE's range is 512 MB against 256 + 512, and it draws correctly). PES17_IGNORE_STORAGE_RANGE=1
-    // skips the check.
     const VkDeviceSize storageRange = env::Flag("PES17_IGNORE_STORAGE_RANGE") ? ~VkDeviceSize(0) : properties.limits.maxStorageBufferRange;
-    for (; wanted >= kArenaLeast; withShadow ? (void)(withShadow = false) : (void)(wanted /= 2))
+    for (; wanted >= kArenaLeast; wanted /= 2)
     {
+        if (VkDeviceSize(wanted / kFrameSlots) > storageRange) continue;
         VkBufferCreateInfo buffer{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-        buffer.size = VkDeviceSize(wanted) + (withShadow ? shadowBytes : 0);
-        if (VkDeviceSize(wanted) > storageRange) continue;
+        buffer.size = wanted;
         buffer.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                        VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
         if (vkCreateBuffer(g.device, &buffer, nullptr, &g.arena) != VK_SUCCESS) continue;
@@ -427,11 +416,6 @@ bool vk::renderer::Initialise()
                         reinterpret_cast<void**>(&g.arenaMapped)) == VK_SUCCESS)
         {
             g.arenaBytes = wanted;
-            if (withShadow)
-            {
-                g.shadowBase = wanted;
-                gpu::watch::SetShadow(g.arenaMapped + wanted, shadowBytes);
-            }
             break;
         }
         if (g.arenaMemory) vkFreeMemory(g.device, g.arenaMemory, nullptr);
@@ -451,14 +435,13 @@ bool vk::renderer::Initialise()
     constexpr uint32_t kWindowHeadroom = bindings::kBlockBytes[bindings::kVertexFloats];
     const uint32_t share = (g.arenaBytes / kFrameSlots) & ~(g.uniformAlignment - 1);
     g.arenaSlotBytes = share - kWindowHeadroom;
+    g.arenaWindow = share;
     for (uint32_t i = 0; i < kFrameSlots; i++) g.slots[i].arenaBase = i * share;
     g.command = g.slots[g.slot].buffers[0];
     g.arenaBase = g.slots[g.slot].arenaBase;
     LOGI("renderer: %u frame slots of %u KB of arena each", kFrameSlots, g.arenaSlotBytes / 1024);
-    LOGI("renderer: arena %u MB, shadow %s, buffer %llu MB against maxStorageBufferRange %llu MB",
-         g.arenaBytes >> 20, g.shadowBase ? "on" : "off",
-         (unsigned long long)((VkDeviceSize(g.arenaBytes) + (g.shadowBase ? shadowBytes : 0)) >> 20),
-         (unsigned long long)(properties.limits.maxStorageBufferRange >> 20));
+    LOGI("renderer: arena %u MB, each slot seen through a %u MB storage window against maxStorageBufferRange %llu MB",
+         g.arenaBytes >> 20, g.arenaWindow >> 20, (unsigned long long)(properties.limits.maxStorageBufferRange >> 20));
 
     // Before any command is recorded: the recorder thread only reads these.
     // On Vulkan 1.3 core devices (Mali, Tensor, etc.), the commands may be exported
@@ -493,7 +476,7 @@ bool vk::renderer::Initialise()
     VkDescriptorPoolSize sizes[2]{};
     sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     sizes[0].descriptorCount = bindings::kConstantBlocks;
-    sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
     sizes[1].descriptorCount = 1;
     VkDescriptorPoolCreateInfo descriptors{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
     descriptors.maxSets = 2;
@@ -540,12 +523,13 @@ bool vk::renderer::Initialise()
         writes[i].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
         writes[i].pBufferInfo = &buffers[i];
     }
-    buffers[kBlocks] = { g.arena, 0, VK_WHOLE_SIZE };
+    // One slot's share, at the offset each command buffer binds it with (BeginSegmentBuffer).
+    buffers[kBlocks] = { g.arena, 0, g.arenaWindow };
     writes[kBlocks].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[kBlocks].dstSet = g.memorySet;
     writes[kBlocks].dstBinding = bindings::kArenaBinding;
     writes[kBlocks].descriptorCount = 1;
-    writes[kBlocks].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[kBlocks].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
     writes[kBlocks].pBufferInfo = &buffers[kBlocks];
     vkUpdateDescriptorSets(g.device, kBlocks + 1, writes, 0, nullptr);
 

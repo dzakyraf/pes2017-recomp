@@ -85,13 +85,16 @@ namespace vk::renderer::detail
     {
         const VkPipelineLayout layout = static_cast<VkPipelineLayout>(vk::pipeline::Layout());
         const VkDescriptorSet memorySet = g.memorySet;
+        // The storage window is this slot's share of the arena: a vertex fetch constant holds an offset
+        // from it (renderer_arena.cpp).
+        const uint32_t windowOffset = g.arenaBase;
         Record([=](VkCommandBuffer command) {
             VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
             begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
             if (vkBeginCommandBuffer(command, &begin) != VK_SUCCESS)
                 LOGW("renderer: a frame's command buffer would not begin");
             vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS, layout,
-                                    bindings::kArenaSet, 1, &memorySet, 0, nullptr);
+                                    bindings::kArenaSet, 1, &memorySet, 1, &windowOffset);
         });
         // A fresh command buffer remembers nothing.
         g.bound = State::Bound{};

@@ -246,7 +246,7 @@ namespace vk::renderer::detail
                         BuildFourthCorner(vertices, stride, rect, given + rect);
                     std::memcpy(g.arenaMapped + at, vertices, corners.size() * 4);
                     if (g.drawRecord) NoteVertexWindow(guest::Base() + va, have * 4);
-                    entry[0] = at | type;
+                    entry[0] = (at - g.arenaBase) | type;   // from the slot's window
                     continue;
                 }
 
@@ -331,7 +331,7 @@ namespace vk::renderer::detail
                     if (!found) found = &made[madeCount++];
                     *found = { entry[0] & ~3u, at - first * 4, first, words };
                 }
-                entry[0] = found->base | type;
+                entry[0] = (found->base - g.arenaBase) | type;   // from the slot's window
             }
         }
 
