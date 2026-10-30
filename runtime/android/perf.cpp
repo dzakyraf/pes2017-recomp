@@ -54,9 +54,13 @@ namespace
         return uint64_t(value);
     }
 
-    // The cores that clock highest. Within 15% of the fastest counts as big,
-    // which puts a 2+2+4 cluster's prime and performance cores together and
-    // leaves the little ones out.
+    // The cores the scheduler itself rates highest. cpu_capacity is the kernel's
+    // own measure of a core (1024 for the best) and it sees what a clock cannot:
+    // a Helio G85's Cortex-A55s clock at 1.8 GHz against its A75s' 2.0 GHz, so
+    // any clock threshold wide enough to keep a 2+2+4's performance cores keeps
+    // the efficiency cores too, every core counts as fast, and PinToBigCores()
+    // returns without pinning anything. Without cpu_capacity, the clock within
+    // 30% of the fastest is the fallback.
     void FindCores()
     {
         CPU_ZERO(&g_bigCores);
@@ -65,7 +69,9 @@ namespace
         g_coreCount = uint32_t(std::clamp<long>(configured, 1, CPU_SETSIZE));
 
         std::vector<uint64_t> maximum(g_coreCount, 0);
+        std::vector<uint64_t> capacity(g_coreCount, 0);
         uint64_t fastest = 0;
+        uint64_t bestCapacity = 0;
         for (uint32_t cpu = 0; cpu < g_coreCount; cpu++)
         {
             CPU_SET(int(cpu), &g_allCores);
@@ -74,8 +80,12 @@ namespace
                           "/sys/devices/system/cpu/cpu%u/cpufreq/cpuinfo_max_freq", cpu);
             maximum[cpu] = ReadNumber(path);
             fastest = std::max(fastest, maximum[cpu]);
+            std::snprintf(path, sizeof path,
+                          "/sys/devices/system/cpu/cpu%u/cpu_capacity", cpu);
+            capacity[cpu] = ReadNumber(path);
+            bestCapacity = std::max(bestCapacity, capacity[cpu]);
         }
-        if (!fastest)
+        if (!fastest && !bestCapacity)
         {
             // No cpufreq to read (an emulator, a locked-down kernel): every
             // core is as good as the next.
@@ -83,12 +93,27 @@ namespace
             g_bigCoreCount = g_coreCount;
             return;
         }
-        // Within ~30% captures both prime and performance/mid cores on tri-cluster
-        // SoCs (such as Google Tensor 2+2+4 or Snapdragon 1+3+4), while excluding
-        // low-frequency efficiency cores (Cortex-A55/A510).
-        const uint64_t threshold = fastest - fastest / 3;
-        for (uint32_t cpu = 0; cpu < g_coreCount; cpu++)
-            if (maximum[cpu] >= threshold) { CPU_SET(int(cpu), &g_bigCores); g_bigCoreCount++; }
+
+        const char* source = "capacity";
+        if (bestCapacity)
+        {
+            // A core within 60% of the best is fast. On a 2+2+4 that keeps the
+            // prime and performance clusters; on the G85's 2+6 it keeps only the
+            // two A75s (1024 against the A55s' 516).
+            const uint64_t threshold = bestCapacity * 6 / 10;
+            for (uint32_t cpu = 0; cpu < g_coreCount; cpu++)
+                if (capacity[cpu] >= threshold) { CPU_SET(int(cpu), &g_bigCores); g_bigCoreCount++; }
+        }
+        else
+        {
+            // Within ~30% captures both prime and performance/mid cores on tri-cluster
+            // SoCs (such as Google Tensor 2+2+4 or Snapdragon 1+3+4), while excluding
+            // low-frequency efficiency cores (Cortex-A55/A510).
+            source = "clock";
+            const uint64_t threshold = fastest - fastest / 3;
+            for (uint32_t cpu = 0; cpu < g_coreCount; cpu++)
+                if (maximum[cpu] >= threshold) { CPU_SET(int(cpu), &g_bigCores); g_bigCoreCount++; }
+        }
 
         // If we found at least 2 fast cores, keep them; otherwise (e.g. single-core
         // or uniform cluster) use all cores.
@@ -97,8 +122,8 @@ namespace
             g_bigCores = g_allCores;
             g_bigCoreCount = g_coreCount;
         }
-        LOGI("perf: %u cores, %u of them fast (%llu kHz)", g_coreCount, g_bigCoreCount,
-             (unsigned long long)fastest);
+        LOGI("perf: %u cores, %u of them fast by %s (%llu kHz)", g_coreCount, g_bigCoreCount,
+             source, (unsigned long long)fastest);
     }
 
     uint64_t MemInfoKB(const char* key)
@@ -325,9 +350,12 @@ uint32_t android::perf::AvailableMemoryMB()
 void android::perf::PrewarmBudget(uint32_t& maxSync, uint32_t& deadlineMs)
 {
     std::call_once(g_cpusOnce, FindCores);
+    // MemTotal is what the kernel reports, not what the phone is sold as: an
+    // "8 GB" phone reports about 7.7 GB and a "6 GB" one about 5.5 GB, so the
+    // thresholds sit below the marketing size or the top tier is unreachable.
     const uint32_t totalMB = TotalMemoryMB();
-    if (totalMB >= 8000 && g_bigCoreCount >= 4) { maxSync = 40; deadlineMs = 600; }
-    else if (totalMB >= 6000)                   { maxSync = 25; deadlineMs = 400; }
+    if (totalMB >= 7500 && g_bigCoreCount >= 4) { maxSync = 40; deadlineMs = 600; }
+    else if (totalMB >= 5500)                   { maxSync = 25; deadlineMs = 400; }
     else                                        { maxSync = 15; deadlineMs = 250; }
     const uint64_t overrideMax = env::Number("PES17_PREWARM_MAX");
     const uint64_t overrideMs = env::Number("PES17_PREWARM_MS");
@@ -369,7 +397,7 @@ void android::perf::ApplyMemoryDefaults()
     // negotiable; what is left over is what the renderer may cache. A sixth of
     // the device's memory keeps a 4 GB phone alive with room for the system.
     uint32_t textureMB = std::clamp(totalMB / 6, 128u, 1024u);
-    if (totalMB >= 12000) textureMB = 1536;
+    if (totalMB >= 11000) textureMB = 1536;   // MemTotal of a "12 GB" phone
     char text[32];
     std::snprintf(text, sizeof text, "%u", textureMB);
     setenv("PES17_TEXTURE_BUDGET_MB", text, 0);
@@ -381,7 +409,7 @@ void android::perf::ApplyMemoryDefaults()
 
     // The upload arena is committed up front, so it is 512 MB of resident
     // memory on a device that does not have it to spare.
-    const uint32_t arenaMB = totalMB >= 8000 ? 384u : totalMB >= 6000 ? 256u : 192u;
+    const uint32_t arenaMB = totalMB >= 7500 ? 384u : totalMB >= 5500 ? 256u : 192u;
     std::snprintf(text, sizeof text, "%u", arenaMB);
     setenv("PES17_ARENA_MB", text, 0);
 
