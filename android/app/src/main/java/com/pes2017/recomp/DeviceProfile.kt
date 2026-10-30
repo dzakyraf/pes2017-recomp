@@ -53,12 +53,18 @@ object DeviceProfile {
     // With the heat rule on, the scene scale is the most the match will be drawn at and the
     // runtime lowers it (to 50%) as the phone heats, so Medium and Low start higher than they
     // would be fixed. The heat rule is on everywhere: on a Snapdragon 865 it dropped the picture and
-    // held 57-60 fps in a match at thermal status 4. The load rule is not in any preset: on that
-    // phone the GPU pass time never went over budget in a slow match, so it never acted.
+    // held 57-60 fps in a match at thermal status 4. The load rule was left out of every preset
+    // because on that phone the GPU pass time never went over budget in a slow match, so it never
+    // acted; a Mali-G52 in Low has no such headroom, and the rule is the quickest way to keep the
+    // frame time steady when it does not.
+    //
+    // lowMemory is off in every preset: the runtime already turns the vertex shadow off by
+    // itself when MemTotal is 6 GB or less (perf.cpp), and forcing it from the Low tier cost
+    // CPU on 8 GB phones that have the RAM to spare.
     fun preset(tier: Tier): Preset = when (tier) {
         Tier.HIGH -> Preset(75, multisampling = true, fsr = false, fpsLimit = 60, lowMemory = false, heatScale = true, loadScale = false)
         Tier.MEDIUM -> Preset(75, multisampling = true, fsr = true, fpsLimit = 60, lowMemory = false, heatScale = true, loadScale = false)
-        Tier.LOW -> Preset(60, multisampling = false, fsr = true, fpsLimit = 30, lowMemory = true, heatScale = true, loadScale = false)
+        Tier.LOW -> Preset(60, multisampling = false, fsr = true, fpsLimit = 30, lowMemory = false, heatScale = true, loadScale = true)
     }
 
     fun apply(prefs: Prefs, tier: Tier) {
