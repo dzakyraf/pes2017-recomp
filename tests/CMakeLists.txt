@@ -95,6 +95,13 @@ add_executable(version-test
 target_include_directories(version-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../launcher")
 add_test(NAME version COMMAND version-test)
 
+# ---- system music queries --------------------------------------------------
+# XMP replies gate the title's own music. Check the real big-endian packet and
+# output handling without the game image, Android or an audio device.
+add_executable(xmp-test "${CMAKE_CURRENT_SOURCE_DIR}/xmp_test.cpp")
+target_include_directories(xmp-test PRIVATE "${PES17_RUNTIME}")
+add_test(NAME xmp COMMAND xmp-test)
+
 # ---- the store of converted textures ---------------------------------------
 # What one session converts (BC to ASTC) the next reads back from disk
 # (runtime/gpu/vulkan/texture_store.cpp): byte for byte, never for other source
@@ -121,6 +128,7 @@ if(WIN32)
     target_link_options(bc-test PRIVATE -static)
     target_link_options(volume-test PRIVATE -static)
     target_link_options(version-test PRIVATE -static)
+    target_link_options(xmp-test PRIVATE -static)
 endif()
 
 # ---- the dynamic scene scale -------------------------------------------------
