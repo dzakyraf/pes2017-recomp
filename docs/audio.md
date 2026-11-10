@@ -46,6 +46,23 @@ which comes from the top byte of `ExCreateThread`'s flags; its callback waits
 on a "done" and a "stop" event with `KeWaitForMultipleObjects` and needs the
 index back; and it reads `KeDebugMonitorData`, which must point at a zero word.
 
+## System music queries (XMP)
+
+PES also asks XAM app `0xFA` whether Xbox system music owns playback. The
+`XMPGetPlaybackController` message (`0x0007001B`) must write both controller and
+locked outputs; `XMPGetStatus` (`0x00070009`) must write its status output. These
+are big-endian guest words, not values returned in the import's result register.
+With no system/custom-music player, the runtime reports controller 0, unlocked
+and idle (0), leaving the title free to play its own soundtrack.
+
+Returning success without writing these outputs makes the result depend on
+stale guest stack data: the title can suppress menu/stadium music even while
+effects and commentary work. `runtime/kernel/xmp.h` handles these two queries;
+other XMP messages retain their existing dispatch behavior. This does not
+implement a system playlist player or change decoding, mixing or controller
+input. `tests/xmp_test.cpp` checks the output and rejection contracts without
+any game files.
+
 ## XMA decoder (`apu/xma.cpp`)
 
 A port of Xenia's context decoder (`xma_context_new.cc`): the same context
